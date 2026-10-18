@@ -18,6 +18,9 @@ var rotating := false
 var simplified := false
 var overhead := false
 var benchmark := false
+var cmdline_benchmark := false
+var bench_lines: Array[String] = []
+var buttons: Dictionary = {}
 var frame := 0
 var samples: Array[float] = []
 
@@ -62,7 +65,10 @@ func _ready() -> void:
 	add_child(exact_ball)
 	add_child(fixed_ball)
 	add_child(label)
+	label.add_theme_font_size_override("font_size", 26)
+	build_touch_ui()
 	benchmark = "--benchmark" in OS.get_cmdline_user_args()
+	cmdline_benchmark = benchmark
 	if benchmark and DisplayServer.get_name() == "headless":
 		print("RENDER BENCHMARK: 미실행 — headless uses dummy renderer; run with a display/GPU.")
 		get_tree().quit()
@@ -72,15 +78,68 @@ func _ready() -> void:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	print("S1 ready: 32 reused cylinder modules, 512 buildings + 512 detail meshes")
 
+func build_touch_ui() -> void:
+	# Touch buttons mirror the R/O/L keys and add an on-screen benchmark (tablet check, no keyboard).
+	var layer := CanvasLayer.new()
+	add_child(layer)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 24)
+	layer.add_child(row)
+	row.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	row.offset_top = -170.0
+	row.offset_bottom = -30.0
+	row.offset_left = 30.0
+	row.offset_right = -30.0
+	for entry in [["R", "R 회전/고정"], ["O", "O 머리 위/던지기"], ["L", "L 단순화"], ["B", "측정"]]:
+		var button := Button.new()
+		button.text = entry[1]
+		button.focus_mode = Control.FOCUS_NONE
+		button.custom_minimum_size = Vector2(0, 130)
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.add_theme_font_size_override("font_size", 30)
+		button.pressed.connect(press.bind(entry[0]))
+		row.add_child(button)
+		buttons[entry[0]] = button
+
+func press(key: String) -> void:
+	if benchmark:
+		return
+	match key:
+		"R":
+			rotating = not rotating
+		"L":
+			simplified = not simplified
+		"O":
+			overhead = not overhead
+		"B":
+			start_screen_benchmark()
+
+func start_screen_benchmark() -> void:
+	# Same sequence as `-- --benchmark`, but results are shown on screen and the scene keeps running.
+	bench_lines.clear()
+	samples.clear()
+	frame = 0
+	overhead = true
+	simplified = false
+	benchmark = true
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+
+func finish_benchmark() -> void:
+	if cmdline_benchmark:
+		get_tree().quit()
+		return
+	benchmark = false
+	simplified = false
+
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not event.is_pressed() or event.is_echo() or benchmark:
 		return
 	if event.keycode == KEY_R:
-		rotating = not rotating
+		press("R")
 	if event.keycode == KEY_L:
-		simplified = not simplified
+		press("L")
 	if event.keycode == KEY_O:
-		overhead = not overhead
+		press("O")
 
 func _physics_process(dt: float) -> void:
 	if benchmark:
@@ -107,7 +166,9 @@ func _process(dt: float) -> void:
 	fixed_ball.position = p.rotated(Vector3.BACK, rotation_angle)
 	for i in range(BUILDINGS):
 		details[i].visible = not simplified or camera.global_position.distance_to(buildings[i].global_position) < DETAIL_RANGE
-	label.text = "R: actual rotation/fixed | L: distance detail | O: overhead/throw\nmode=%s detail=%s error=%.6fm (red=A green=B)" % ["A rotating" if rotating else "B fixed", simplified, p.distance_to(Motion.rotating_position(time))]
+	label.text = "R: actual rotation/fixed | L: distance detail | O: overhead/throw | 측정: on-screen benchmark\nmode=%s detail=%s error=%.6fm (red=A green=B)\nFPS=%d frame=%.1fms%s" % ["A rotating" if rotating else "B fixed", simplified, p.distance_to(Motion.rotating_position(time)), Engine.get_frames_per_second(), dt * 1000.0, "  [측정 중...]" if benchmark else ""]
+	if not bench_lines.is_empty():
+		label.text += "\n" + "\n".join(bench_lines)
 	if benchmark:
 		frame += 1
 		# Two fixed-camera phases: 120 warm-up + 600 measured frames each.
@@ -119,9 +180,11 @@ func _process(dt: float) -> void:
 			var total := 0.0
 			for value in samples:
 				total += value
-			print("FRAME detail_simplified=%s mean_ms=%.3f p95_ms=%.3f samples=%d draw_calls=%d" % [simplified, total / samples.size(), samples[int(samples.size() * 0.95)], samples.size(), Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)])
+			var line := "FRAME detail_simplified=%s mean_ms=%.3f p95_ms=%.3f samples=%d draw_calls=%d" % [simplified, total / samples.size(), samples[int(samples.size() * 0.95)], samples.size(), Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)]
+			print(line)
+			bench_lines.append(line)
 			samples.clear()
 			if simplified:
-				get_tree().quit()
+				finish_benchmark()
 			else:
 				simplified = true
