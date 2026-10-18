@@ -130,7 +130,7 @@ sets `visible_instance_count`, so it still hides far details.
 The label and every benchmark line now show `mm`, `render_cpu` (the engine's
 measured CPU time to submit the last frame, not rounded up to the refresh
 period) and `gpu` (`?` when the renderer reports none). Benchmark lines carry
-`render_cpu_mean_ms` and `draw_calls`.
+`render_cpu_mean_ms`, `render_gpu_mean_ms` (`?` when the renderer reports no GPU time) and `draw_calls`. `render_cpu` is the viewport's measured CPU render time plus `RenderingServer.get_frame_setup_time_cpu()`, as the Godot API documentation requires for a complete total.
 
 Tablet run (x16, `측정` each time, 2 lines per run): MM off and MM on. Compare
 `draw_calls`, `mean_ms` and `render_cpu_mean_ms`; `render_cpu_mean_ms` is the

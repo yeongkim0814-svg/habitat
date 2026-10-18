@@ -21,6 +21,7 @@ var mm_towers: MultiMesh
 var mm_box_xforms: Array[Transform3D] = []
 var mm_tower_xforms: Array[Transform3D] = []
 var cpu_samples: Array[float] = []
+var gpu_samples: Array[float] = []
 var buildings: Array[Node3D] = []
 var details: Array[MeshInstance3D] = []
 var label := Label.new()
@@ -134,13 +135,22 @@ func multimesh_node(mesh: Mesh, color: Color, xforms: Array[Transform3D]) -> Mul
 	return multimesh
 
 func render_cpu_ms() -> float:
-	# CPU time spent submitting the last frame's render; unlike frame time it is not rounded up to the vsync period.
-	return RenderingServer.viewport_get_measured_render_time_cpu(get_viewport().get_viewport_rid())
+	# CPU time spent submitting the last frame's render (viewport time + global frame setup time, as the Godot docs
+	# require for a total); unlike frame time it is not rounded up to the vsync period.
+	return RenderingServer.viewport_get_measured_render_time_cpu(get_viewport().get_viewport_rid()) + RenderingServer.get_frame_setup_time_cpu()
+
+func render_gpu_ms() -> float:
+	# 0 means the renderer reports no GPU time.
+	return RenderingServer.viewport_get_measured_render_time_gpu(get_viewport().get_viewport_rid())
 
 func render_gpu_text() -> String:
-	# GPU time is not reported by every renderer (0 means unavailable).
-	var gpu := RenderingServer.viewport_get_measured_render_time_gpu(get_viewport().get_viewport_rid())
+	var gpu := render_gpu_ms()
 	return "%.2fms" % gpu if gpu > 0.0 else "?"
+
+func gpu_mean_text() -> String:
+	# Mean over the measurement window, or '?' when the renderer reported no GPU time at all.
+	var mean := mean_of(gpu_samples)
+	return "%.3f" % mean if mean > 0.0 else "?"
 
 func mean_of(values: Array[float]) -> float:
 	if values.is_empty():
@@ -226,6 +236,7 @@ func start_screen_benchmark() -> void:
 	bench_lines.clear()
 	samples.clear()
 	cpu_samples.clear()
+	gpu_samples.clear()
 	frame = 0
 	overhead = true
 	simplified = false
@@ -286,16 +297,18 @@ func _process(dt: float) -> void:
 		if phase_frame >= 120:
 			samples.append(dt * 1000.0)
 			cpu_samples.append(render_cpu_ms())
+			gpu_samples.append(render_gpu_ms())
 		if phase_frame == 719:
 			samples.sort()
 			var total := 0.0
 			for value in samples:
 				total += value
-			var line := "FRAME buildings=%d mm=%s detail_simplified=%s mean_ms=%.3f p95_ms=%.3f render_cpu_mean_ms=%.3f samples=%d draw_calls=%d refresh_hz=%s vsync=%d" % [building_count, use_multimesh, simplified, total / samples.size(), samples[int(samples.size() * 0.95)], mean_of(cpu_samples), samples.size(), Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), refresh_text(), DisplayServer.window_get_vsync_mode()]
+			var line := "FRAME buildings=%d mm=%s detail_simplified=%s mean_ms=%.3f p95_ms=%.3f render_cpu_mean_ms=%.3f render_gpu_mean_ms=%s samples=%d draw_calls=%d refresh_hz=%s vsync=%d" % [building_count, use_multimesh, simplified, total / samples.size(), samples[int(samples.size() * 0.95)], mean_of(cpu_samples), gpu_mean_text(), samples.size(), Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), refresh_text(), DisplayServer.window_get_vsync_mode()]
 			print(line)
 			bench_lines.append(line)
 			samples.clear()
 			cpu_samples.clear()
+			gpu_samples.clear()
 			if simplified:
 				finish_benchmark()
 			else:
