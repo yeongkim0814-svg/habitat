@@ -115,3 +115,31 @@ Xvfb run (counts 512/2048/8192, node count back to baseline after cycling, no
 leak, button label, simplified visibility) and a screenshot of the x16 layout.
 **미실행:** tablet frame times at x4/x16 and whether VSync is actually disabled on
 Android.
+
+## MultiMesh comparison and render CPU time (draw call finding)
+
+The tablet measurement showed the opposite district is draw-call bound:
+16,429 draw calls took 24.0 ms and 8,237 took 15.0 ms (8,192 buildings), while
+512 and 2,048 buildings fit inside one 120 Hz refresh period (8.33 ms, VSync
+was on, so frame times are rounded up to multiples of the refresh period). The
+`MM` button switches the buildings from one `MeshInstance3D` per mesh to two
+`MultiMeshInstance3D` (one for boxes, one for rooftop details). In MultiMesh
+mode the distance simplification reorders the tower instances (near first) and
+sets `visible_instance_count`, so it still hides far details.
+
+The label and every benchmark line now show `mm`, `render_cpu` (the engine's
+measured CPU time to submit the last frame, not rounded up to the refresh
+period) and `gpu` (`?` when the renderer reports none). Benchmark lines carry
+`render_cpu_mean_ms`, `render_gpu_mean_ms` (`?` when the renderer reports no GPU time) and `draw_calls`. `render_cpu` is the viewport's measured CPU render time plus `RenderingServer.get_frame_setup_time_cpu()`, as the Godot API documentation requires for a complete total.
+
+Tablet run (x16, `측정` each time, 2 lines per run): MM off and MM on. Compare
+`draw_calls`, `mean_ms` and `render_cpu_mean_ms`; `render_cpu_mean_ms` is the
+number to compare when `mean_ms` is pinned to the refresh period.
+
+Checked here: headless tests and scene load on Godot 4.6.3 and 4.7.2, and a
+scripted Xvfb run (software rendering, 4.7.2): x16 nodes = 16,430 draw calls,
+x16 MultiMesh = 48 draw calls with 2 MultiMesh nodes (8,192 instances each),
+simplified view hides all rooftop instances at 2 km, switching back to nodes
+restores 8,224 children with no leaked nodes, and the screenshot looks the same
+as the node version. **미실행:** tablet frame times and render CPU time with
+MultiMesh, and whether the Android renderer reports GPU time.
