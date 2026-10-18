@@ -78,3 +78,21 @@ benchmark explicitly refuses to report frame times.
 
 Selection B is supported by the numerical equivalence; rendering cost remains
 unresolved until the above GPU measurement. No frame-time budget is asserted.
+
+## Touch controls and on-screen measurement (tablet, no keyboard)
+
+The scene has four bottom buttons that mirror the keys: R (rotation/fixed),
+O (overhead/throw), L (distance detail) and 측정 (on-screen benchmark). The top
+label shows FPS and frame time. The 측정 button runs the same sequence as
+`-- --benchmark` (120 warm-up + 600 measured frames, detail off then on,
+VSync disabled where the platform allows it) and prints the result lines on
+screen and to the console; the scene keeps running afterward. Keys and the
+`-- --benchmark` command-line mode behave as before (the command-line mode
+still quits when finished). The benchmark runs the overhead (opposite district)
+view, so do not touch the buttons while it shows "[측정 중...]".
+
+Checked here (not on a device): headless tests and scene load on Godot 4.6.3
+and 4.7.2, and a software-rendered screenshot under Xvfb showing the four
+buttons, the label and the opposite district. Touch input itself, button size on
+the real screen and the FPS numbers are **미실행** (software rendering FPS is
+meaningless); run on the tablet and report the on-screen result lines.
