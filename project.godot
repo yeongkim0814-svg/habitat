@@ -1,0 +1,10 @@
+config_version=5
+
+[application]
+config/name="S2 Cylinder precision spike"
+run/main_scene="res://spikes/s2_cylinder/main.tscn"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.06, 0.08, 0.12, 1)
