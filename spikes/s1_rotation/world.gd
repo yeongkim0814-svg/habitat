@@ -1,13 +1,18 @@
 extends Node3D
 const Cylinder = preload("res://spikes/s2_cylinder/cylinder.gd")
 const Motion = preload("res://spikes/s1_rotation/motion.gd")
-const BUILDINGS := 512
+const BASE_BUILDINGS := 512
+const LOADS: Array[int] = [1, 4, 16]
 const DETAIL_RANGE := 500.0
 var habitat := Node3D.new()
 var rig := Node3D.new()
 var camera := Camera3D.new()
 var exact_ball: MeshInstance3D
 var fixed_ball: MeshInstance3D
+var load_index := 0
+var box_mesh := BoxMesh.new()
+var tower_mesh := BoxMesh.new()
+var detail_state := []
 var buildings: Array[Node3D] = []
 var details: Array[MeshInstance3D] = []
 var label := Label.new()
@@ -41,22 +46,9 @@ func _ready() -> void:
 	camera.far = 3000.0
 	for i in range(Cylinder.N):
 		habitat.add_child(mesh_node(Cylinder.segment(Motion.R, i), Color(0.14 + 0.04 * (i % 2), 0.2, 0.25)))
-	var box := BoxMesh.new()
-	box.size = Vector3(8, 20, 8)
-	var tower := BoxMesh.new()
-	tower.size = Vector3(3, 12, 3)
-	for i in range(BUILDINGS):
-		var root := Node3D.new()
-		var theta := PI / 2.0 + (float(i % 32) / 31.0 - 0.5) * 0.8
-		root.position = Cylinder.point(Motion.R - 10.0, theta, (float(i / 32) - 7.5) * 11.0)
-		root.basis = Basis(Vector3.BACK, theta + PI / 2.0)
-		habitat.add_child(root)
-		root.add_child(mesh_node(box, Color(0.5, 0.6, 0.7)))
-		var detail := mesh_node(tower, Color(0.8, 0.65, 0.3))
-		detail.position.y = 16.0
-		root.add_child(detail)
-		buildings.append(root)
-		details.append(detail)
+	box_mesh.size = Vector3(8, 20, 8)
+	tower_mesh.size = Vector3(3, 12, 3)
+	build_buildings()
 	var sphere := SphereMesh.new()
 	sphere.radius = 0.5
 	sphere.height = 1.0
@@ -76,7 +68,39 @@ func _ready() -> void:
 	if benchmark:
 		overhead = true
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
-	print("S1 ready: 32 reused cylinder modules, 512 buildings + 512 detail meshes")
+	print("S1 ready: 32 reused cylinder modules, %d buildings + %d detail meshes" % [buildings.size(), details.size()])
+
+func build_buildings() -> void:
+	# Load x1/x4/x16 keeps 16 rows and widens each row (more columns), so every building stays in the opposite district.
+	for root in buildings:
+		root.free()
+	buildings.clear()
+	details.clear()
+	var columns: int = 32 * LOADS[load_index]
+	for i in range(columns * 16):
+		var root := Node3D.new()
+		var theta := PI / 2.0 + (float(i % columns) / float(columns - 1) - 0.5) * 0.8
+		root.position = Cylinder.point(Motion.R - 10.0, theta, (float(i / columns) - 7.5) * 11.0)
+		root.basis = Basis(Vector3.BACK, theta + PI / 2.0)
+		habitat.add_child(root)
+		root.add_child(mesh_node(box_mesh, Color(0.5, 0.6, 0.7)))
+		var detail := mesh_node(tower_mesh, Color(0.8, 0.65, 0.3))
+		detail.position.y = 16.0
+		root.add_child(detail)
+		buildings.append(root)
+		details.append(detail)
+	detail_state = []
+
+func refresh_text() -> String:
+	# screen_get_refresh_rate() is unavailable (NaN/-1) on some displays; show '?' instead.
+	var hz := DisplayServer.screen_get_refresh_rate()
+	return "%.0f" % hz if hz > 0.0 else "?"
+
+func update_detail() -> void:
+	# Distance simplification only changes with camera/mode/load, so it is not recomputed every frame (keeps it out of frame timings).
+	var cam := camera.global_position
+	for i in range(buildings.size()):
+		details[i].visible = not simplified or cam.distance_to(buildings[i].global_position) < DETAIL_RANGE
 
 func build_touch_ui() -> void:
 	# Touch buttons mirror the R/O/L keys and add an on-screen benchmark (tablet check, no keyboard).
@@ -90,7 +114,7 @@ func build_touch_ui() -> void:
 	row.offset_bottom = -30.0
 	row.offset_left = 30.0
 	row.offset_right = -30.0
-	for entry in [["R", "R 회전/고정"], ["O", "O 머리 위/던지기"], ["L", "L 단순화"], ["B", "측정"]]:
+	for entry in [["R", "R 회전/고정"], ["O", "O 머리 위/던지기"], ["L", "L 단순화"], ["P", "부하 x1"], ["B", "측정"]]:
 		var button := Button.new()
 		button.text = entry[1]
 		button.focus_mode = Control.FOCUS_NONE
@@ -111,6 +135,10 @@ func press(key: String) -> void:
 			simplified = not simplified
 		"O":
 			overhead = not overhead
+		"P":
+			load_index = (load_index + 1) % LOADS.size()
+			buttons["P"].text = "부하 x%d" % LOADS[load_index]
+			build_buildings()
 		"B":
 			start_screen_benchmark()
 
@@ -164,9 +192,11 @@ func _process(dt: float) -> void:
 	camera.basis = Basis(Vector3.RIGHT, PI / 2.0) if overhead else Basis.looking_at(Vector3(25, 25, 45).normalized(), Vector3.UP)
 	exact_ball.position = Motion.inertial(time) if rotating else Motion.rotating_position(time)
 	fixed_ball.position = p.rotated(Vector3.BACK, rotation_angle)
-	for i in range(BUILDINGS):
-		details[i].visible = not simplified or camera.global_position.distance_to(buildings[i].global_position) < DETAIL_RANGE
-	label.text = "R: actual rotation/fixed | L: distance detail | O: overhead/throw | 측정: on-screen benchmark\nmode=%s detail=%s error=%.6fm (red=A green=B)\nFPS=%d frame=%.1fms%s" % ["A rotating" if rotating else "B fixed", simplified, p.distance_to(Motion.rotating_position(time)), Engine.get_frames_per_second(), dt * 1000.0, "  [측정 중...]" if benchmark else ""]
+	var state := [simplified, overhead, load_index]
+	if state != detail_state:
+		detail_state = state
+		update_detail()
+	label.text = "R: actual rotation/fixed | L: distance detail | O: overhead/throw | 측정: on-screen benchmark\nmode=%s detail=%s error=%.6fm (red=A green=B)\nFPS=%d frame=%.1fms buildings=%d refresh=%sHz vsync=%d%s" % ["A rotating" if rotating else "B fixed", simplified, p.distance_to(Motion.rotating_position(time)), Engine.get_frames_per_second(), dt * 1000.0, buildings.size(), refresh_text(), DisplayServer.window_get_vsync_mode(), "  [측정 중...]" if benchmark else ""]
 	if not bench_lines.is_empty():
 		label.text += "\n" + "\n".join(bench_lines)
 	if benchmark:
@@ -180,7 +210,7 @@ func _process(dt: float) -> void:
 			var total := 0.0
 			for value in samples:
 				total += value
-			var line := "FRAME detail_simplified=%s mean_ms=%.3f p95_ms=%.3f samples=%d draw_calls=%d" % [simplified, total / samples.size(), samples[int(samples.size() * 0.95)], samples.size(), Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)]
+			var line := "FRAME buildings=%d detail_simplified=%s mean_ms=%.3f p95_ms=%.3f samples=%d draw_calls=%d refresh_hz=%s vsync=%d" % [buildings.size(), simplified, total / samples.size(), samples[int(samples.size() * 0.95)], samples.size(), Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), refresh_text(), DisplayServer.window_get_vsync_mode()]
 			print(line)
 			bench_lines.append(line)
 			samples.clear()

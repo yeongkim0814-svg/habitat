@@ -96,3 +96,22 @@ and 4.7.2, and a software-rendered screenshot under Xvfb showing the four
 buttons, the label and the opposite district. Touch input itself, button size on
 the real screen and the FPS numbers are **미실행** (software rendering FPS is
 meaningless); run on the tablet and report the on-screen result lines.
+
+## Load multiplier and refresh rate (tablet limit finding)
+
+The first tablet measurement (512 buildings, 8.75 ms mean) may be capped by the
+display refresh (120 Hz = 8.33 ms), so it does not show headroom. The `부하` button
+cycles the opposite-district building count 512 → 2048 → 8192 (x1/x4/x16; the 16
+rows stay and each row gets more columns, so everything remains in the opposite
+district). The label and every benchmark line now include `buildings`,
+`refresh` (display refresh rate in Hz, `?` if the platform cannot report it) and
+`vsync` (DisplayServer vsync mode: 0 = disabled, 1 = enabled, 2 = adaptive,
+3 = mailbox). Run `측정` at each load and compare `mean_ms` with the refresh
+period. Distance-simplification visibility is recomputed only when mode, view or
+load changes, not every frame, so it does not add harness cost to frame timings.
+
+Checked here: headless tests and scene load on Godot 4.6.3 and 4.7.2, a scripted
+Xvfb run (counts 512/2048/8192, node count back to baseline after cycling, no
+leak, button label, simplified visibility) and a screenshot of the x16 layout.
+**미실행:** tablet frame times at x4/x16 and whether VSync is actually disabled on
+Android.
