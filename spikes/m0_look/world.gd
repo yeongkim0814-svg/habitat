@@ -3,6 +3,8 @@ extends Node3D
 const Looks = preload("res://spikes/m0_look/looks.gd")
 const Stage = preload("res://spikes/m0_look/stage.gd")
 const Sun = preload("res://spikes/m0_look/sun.gd")
+const Kit = preload("res://spikes/m0_look/ui_kit.gd")
+const TuningPanel = preload("res://spikes/m0_look/tuning_panel.gd")
 const Cylinder = preload("res://spikes/s2_cylinder/cylinder.gd")
 const VIEWS: Array[String] = ["street", "field", "meadow", "overhead"]
 const VIEW_NAMES := {"street": "거리", "field": "들판", "meadow": "초원", "overhead": "머리 위"}
@@ -18,12 +20,13 @@ var camera := Camera3D.new()
 var env_node := WorldEnvironment.new()
 var label := Label.new()
 var ui := CanvasLayer.new()
-var look := "psx"
+var look := "flat"
 var view := "street"
 var hour := 12.0
 var zone := "safe"
 var sun := DirectionalLight3D.new()
 var floor_root := Node3D.new()
+var panel := TuningPanel.new()
 var bench_queue: Array[String] = []
 var bench_samples: Array[float] = []
 var cpu_samples: Array[float] = []
@@ -99,6 +102,8 @@ func floor_xform() -> Transform3D:
 func rebuild() -> void:
 	for child in content.get_children():
 		child.free()
+	Looks.live.clear()
+	panel.load_look(look)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
 	floor_root = Node3D.new()
@@ -127,14 +132,15 @@ func apply_time() -> void:
 	var theta := Sun.SAFE_FLOOR_ANGLE if zone == "safe" else Sun.DANGER_FLOOR_ANGLE
 	var elev := Sun.elevation_deg(hour, theta)
 	sun.look_at_from_position(Sun.to_sun(hour) * 200.0, Vector3.ZERO)
-	sun.light_energy = Sun.light_energy(elev)
+	sun.light_energy = Sun.light_energy(elev) * panel.value("sun")
 	sun.light_color = Sun.light_color(elev)
 	sun.visible = sun.light_energy > 0.0
 	var env := env_node.environment
 	env.background_color = Sun.sky_color(elev)
 	env.fog_light_color = env.background_color
 	env.ambient_light_color = Sun.ambient_color(elev)
-	env.ambient_light_energy = Looks.AMBIENT[look] * lerpf(0.5, 0.8, smoothstep(-6.0, 10.0, elev))
+	env.ambient_light_energy = Looks.AMBIENT[look] * lerpf(0.5, 0.8, smoothstep(-6.0, 10.0, elev)) * panel.value("ambient")
+	env.fog_density = panel.value("fog")
 	label.text = "%s / %s / %s / %02d시 (태양 고도 %d°)" % [Looks.NAMES[look], VIEW_NAMES[view], ZONE_NAMES[zone], int(hour), int(elev)]
 
 func place_camera() -> void:
@@ -161,43 +167,33 @@ func build_ui() -> void:
 	add_child(ui)
 	ui.add_child(label)
 	label.position = Vector2(30, 20)
+	label.add_theme_font_size_override("font_size", 28)
 	# Dark backing so text stays readable over the 3D scene (benchmark results were lost in the background).
 	var backing := StyleBoxFlat.new()
 	backing.bg_color = Color(0, 0, 0, 0.7)
 	backing.set_content_margin_all(12.0)
 	label.add_theme_stylebox_override("normal", backing)
-	label.add_theme_font_size_override("font_size", 28)
-	var top := ui_row(-290.0, -170.0)
+	var top := Kit.bottom_row(ui, -290.0, -170.0)
 	for id in Looks.IDS:
-		add_button(top, Looks.NAMES[id], set_look.bind(id))
+		Kit.button(top, Looks.NAMES[id], set_look.bind(id))
 	for id in VIEWS:
-		add_button(top, VIEW_NAMES[id], set_view.bind(id))
-	var bottom := ui_row(-150.0, -30.0)
-	add_button(bottom, "-3시", step_hour.bind(-3.0))
-	add_button(bottom, "+3시", step_hour.bind(3.0))
-	add_button(bottom, "구역", toggle_zone)
-	add_button(bottom, "측정", start_bench)
+		Kit.button(top, VIEW_NAMES[id], set_view.bind(id))
+	var bottom := Kit.bottom_row(ui, -150.0, -30.0)
+	Kit.button(bottom, "-3시", step_hour.bind(-3.0))
+	Kit.button(bottom, "+3시", step_hour.bind(3.0))
+	Kit.button(bottom, "구역", toggle_zone)
+	Kit.button(bottom, "조절", toggle_panel)
+	Kit.button(bottom, "측정", start_bench)
+	ui.add_child(panel)
+	panel.set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
+	panel.offset_left = -680.0
+	panel.offset_top = 100.0
+	panel.offset_bottom = -310.0
+	panel.visible = false
+	panel.tuned.connect(apply_time)
 
-func ui_row(top: float, bottom: float) -> HBoxContainer:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 20)
-	ui.add_child(row)
-	row.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	row.offset_top = top
-	row.offset_bottom = bottom
-	row.offset_left = 30.0
-	row.offset_right = -30.0
-	return row
-
-func add_button(row: HBoxContainer, text: String, action: Callable) -> void:
-	var b := Button.new()
-	b.text = text
-	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(0, 120)
-	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.add_theme_font_size_override("font_size", 30)
-	b.pressed.connect(action)
-	row.add_child(b)
+func toggle_panel() -> void:
+	panel.visible = not panel.visible
 
 func set_look(id: String) -> void:
 	if bench_queue.is_empty():

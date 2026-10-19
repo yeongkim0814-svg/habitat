@@ -13,7 +13,12 @@
 | `spikes/s4_schedule/controller.gd` | 장면 연결 | 1인칭 CharacterBody3D | cylinder, motion |
 | `spikes/s1_rotation/world.gd` | 장면 연결 | S1 측정 장면(MultiMesh, 터치 버튼, FPS) | cylinder, motion |
 | `spikes/s2_cylinder/world.gd`, `spikes/s4_schedule/world.gd` | 장면 연결 | 스파이크 장면 | 위 모듈 |
-| `tests/s1`, `tests/s2`, `tests/s4` | 테스트 | 헤드리스 검증(`godot --headless --script tests/sN/run.gd`) | 대응 모듈 |
+| `spikes/m0_look/looks.gd`, `nature.gd`, `sun.gd` | 순수 | M0 룩(셰이더 문자열·팔레트), 식생 메시, 태양 계산 (`Looks.tuned`/`live`는 조절 패널용 정적 상태) | 없음 |
+| `spikes/m0_look/tuning.gd` | 순수 | 룩 조절 값 저장·읽기(JSON, 룩별), 깨진 파일은 조용히 무시 | 없음 |
+| `spikes/m0_look/stage.gd` | 장면 연결 | M0 테스트 장면(거리·들판·초원·머리 위, 모두 MultiMesh) | looks, nature |
+| `spikes/m0_look/tuning_panel.gd`, `ui_kit.gd` | 장면 연결 | 태블릿 조절 패널(역할별 색, 안개·주변광·태양), 터치 크기 버튼 보조 | looks, tuning |
+| `spikes/m0_look/world.gd` | 장면 연결 | M0 장면(룩·시점·구역·시각 버튼, 측정) | 위 모듈, cylinder |
+| `tests/s1`, `tests/s2`, `tests/s4`, `tests/m0` | 테스트 | 헤드리스 검증(`godot --headless --script tests/sN/run.gd`) | 대응 모듈 |
 
 ## 2. 목표 구조 (P1 시작 시 적용, 제안)
 
