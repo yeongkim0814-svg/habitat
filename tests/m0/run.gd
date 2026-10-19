@@ -2,6 +2,7 @@ extends SceneTree
 ## Headless checks for the M0 look-dev stage: structure only (the dummy renderer cannot compile shaders or draw).
 const Looks = preload("res://spikes/m0_look/looks.gd")
 const Stage = preload("res://spikes/m0_look/stage.gd")
+const Sun = preload("res://spikes/m0_look/sun.gd")
 const ROLES: Array[String] = ["street", "wall", "lamp", "soil", "rock", "stalk", "frond", "bulb", "ceiling"]
 var failures := 0
 
@@ -42,5 +43,24 @@ func _init() -> void:
 		check(count(root, "MultiMeshInstance3D") >= 8, "%s uses MultiMeshes for repeats" % look)
 		check(instances(root) > 2000, "%s has >2000 instances (got %d)" % [look, instances(root)])
 		root.free()
+	check(load("res://spikes/m0_look/world.gd") != null, "world.gd parses")
+	test_sun()
 	print("M0 tests: %s" % ("OK" if failures == 0 else "%d FAILED" % failures))
 	quit(1 if failures > 0 else 0)
+
+func test_sun() -> void:
+	var peak := Sun.elevation_deg(12.0, Sun.SAFE_FLOOR_ANGLE)
+	check(absf(peak - Sun.ALPHA_DEG) < 0.001, "safe zone noon elevation equals alpha (got %.3f)" % peak)
+	check(absf(Sun.elevation_deg(6.0, Sun.SAFE_FLOOR_ANGLE)) < 0.001, "sunrise elevation is 0")
+	check(absf(Sun.elevation_deg(18.0, Sun.SAFE_FLOOR_ANGLE)) < 0.001, "sunset elevation is 0")
+	var day := 0
+	for i in range(240):
+		var h := i * 0.1
+		var safe := Sun.elevation_deg(h, Sun.SAFE_FLOOR_ANGLE)
+		var danger := Sun.elevation_deg(h, Sun.DANGER_FLOOR_ANGLE)
+		check(absf(safe + danger) < 0.0001, "zones are in opposite phase at %.1f h" % h)
+		if safe > 0.0:
+			day += 1
+	check(day == 120, "each zone is lit exactly half the day (got %d of 240 steps)" % day)
+	check(Sun.to_sun(9.0).is_equal_approx(Sun.to_sun(9.0).normalized()), "sun direction is a unit vector")
+	check(Sun.light_energy(-10.0) == 0.0 and Sun.light_energy(30.0) > 0.5, "light energy is 0 at night and positive by day")

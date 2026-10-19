@@ -2,9 +2,11 @@ extends Node3D
 ## M0 look-dev scene: same stage in three render styles. Touch buttons switch look/view and run a frame-time benchmark.
 const Looks = preload("res://spikes/m0_look/looks.gd")
 const Stage = preload("res://spikes/m0_look/stage.gd")
+const Sun = preload("res://spikes/m0_look/sun.gd")
 const Cylinder = preload("res://spikes/s2_cylinder/cylinder.gd")
-const VIEWS: Array[String] = ["street", "field", "overhead"]
-const VIEW_NAMES := {"street": "거리", "field": "들판", "overhead": "머리 위"}
+const VIEWS: Array[String] = ["street", "field", "meadow", "overhead"]
+const VIEW_NAMES := {"street": "거리", "field": "들판", "meadow": "초원", "overhead": "머리 위"}
+const ZONE_NAMES := {"safe": "안전구역", "danger": "오염구역"}
 const BENCH_FRAMES := 90
 const BENCH_SKIP := 12
 
@@ -18,6 +20,10 @@ var label := Label.new()
 var ui := CanvasLayer.new()
 var look := "psx"
 var view := "street"
+var hour := 12.0
+var zone := "safe"
+var sun := DirectionalLight3D.new()
+var floor_root := Node3D.new()
 var bench_queue: Array[String] = []
 var bench_samples: Array[float] = []
 var cpu_samples: Array[float] = []
@@ -36,43 +42,65 @@ func _ready() -> void:
 	viewport.add_child(scene)
 	scene.add_child(env_node)
 	scene.add_child(content)
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-62, 28, 0)
-	sun.light_energy = 1.1
+	sun.shadow_enabled = true
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	sun.directional_shadow_max_distance = 160.0
+	sun.shadow_bias = 0.05
+	sun.shadow_normal_bias = 2.0
 	scene.add_child(sun)
 	camera.far = 3500.0
 	camera.fov = 75.0
 	scene.add_child(camera)
 	camera.current = true
 	build_ui()
+	if not read_args():
+		return
+	rebuild()
+
+func read_args() -> bool:
+	# Returns false when the process is quitting because of a malformed --shot argument.
 	var shot := ""
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--shot="):
 			shot = arg.substr(7)
+		elif arg.begins_with("--hour="):
+			hour = float(arg.substr(7))
+		elif arg.begins_with("--zone=") and arg.substr(7) in ZONE_NAMES:
+			zone = arg.substr(7)
 	if shot != "":
 		# look:view:path, split at most twice so a path may contain ':' (e.g. C:/tmp/shot.png).
 		var parts := shot.split(":", true, 2)
 		if parts.size() != 3 or not parts[0] in Looks.IDS or not parts[1] in VIEWS or parts[2] == "":
 			push_error("M0: --shot expects <%s>:<%s>:<output.png>, got '%s'" % ["|".join(Looks.IDS), "|".join(VIEWS), shot])
 			get_tree().quit(2)
-			return
+			return false
 		look = parts[0]
 		view = parts[1]
 		shot_path = parts[2]
 		shot_frames = 8
 		ui.visible = false
-	rebuild()
+	return true
+
+func floor_xform() -> Transform3D:
+	# Safe zone floor is at the bottom of the ring; the danger zone floor is at the top, so its stage is upside down.
+	var lift := Vector3(0, Stage.FLOOR_LIFT, 0)
+	if zone == "safe":
+		return Transform3D(Basis(), Stage.origin() + lift)
+	return Transform3D(Basis(Vector3.BACK, PI), Vector3(0, Cylinder.R, 0) - lift)
 
 func rebuild() -> void:
 	for child in content.get_children():
 		child.free()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
-	var floor_root := Node3D.new()
-	floor_root.position = Stage.origin() + Vector3(0, Stage.FLOOR_LIFT, 0)
+	floor_root = Node3D.new()
+	floor_root.transform = floor_xform()
 	content.add_child(floor_root)
 	Stage.street(look, rng, floor_root)
-	Stage.field(look, rng, floor_root)
+	if view == "meadow":
+		Stage.meadow(look, rng, floor_root)
+	else:
+		Stage.field(look, rng, floor_root)
 	var ring := Node3D.new()
 	content.add_child(ring)
 	for i in range(Cylinder.N):
@@ -81,24 +109,43 @@ func rebuild() -> void:
 		seg.material_override = Looks.material(look, "street")
 		seg.scale.z = Stage.RING_HALF_LENGTH * 2.0 / Cylinder.L
 		ring.add_child(seg)
-	Stage.overhead(look, rng, ring)
+	Stage.overhead(look, rng, ring, -PI / 2.0 if zone == "danger" else PI / 2.0)
 	env_node.environment = Looks.environment(look)
 	container.stretch_shrink = Looks.SHRINK[look]
+	apply_time()
 	place_camera()
-	label.text = "%s / %s" % [Looks.NAMES[look], VIEW_NAMES[view]]
+
+func apply_time() -> void:
+	var theta := Sun.SAFE_FLOOR_ANGLE if zone == "safe" else Sun.DANGER_FLOOR_ANGLE
+	var elev := Sun.elevation_deg(hour, theta)
+	sun.look_at_from_position(Sun.to_sun(hour) * 200.0, Vector3.ZERO)
+	sun.light_energy = Sun.light_energy(elev)
+	sun.light_color = Sun.light_color(elev)
+	sun.visible = sun.light_energy > 0.0
+	var env := env_node.environment
+	env.background_color = Sun.sky_color(elev)
+	env.fog_light_color = env.background_color
+	env.ambient_light_color = Sun.ambient_color(elev)
+	env.ambient_light_energy = Looks.AMBIENT[look] * lerpf(0.5, 0.8, smoothstep(-6.0, 10.0, elev))
+	label.text = "%s / %s / %s / %02d시 (태양 고도 %d°)" % [Looks.NAMES[look], VIEW_NAMES[view], ZONE_NAMES[zone], int(hour), int(elev)]
 
 func place_camera() -> void:
-	var base := Stage.origin() + Vector3(0, Stage.FLOOR_LIFT, 0)
+	var xf := floor_xform()
+	var up := xf.basis * Vector3.UP
+	var amp := 1.0 if view == "meadow" else 1.8
+	var eye := Vector3(0, 1.7, 4)
+	var target := Vector3(0, 2.0, 60)
 	match view:
 		"street":
-			camera.position = base + Vector3(0, 1.7, -92)
-			camera.look_at(base + Vector3(0, 3.0, -20))
-		"field":
-			camera.position = base + Vector3(0, 1.7, 4)
-			camera.look_at(base + Vector3(0, 2.0, 60))
+			eye = Vector3(0, 1.7, -92)
+			target = Vector3(0, 3.0, -20)
+		"overhead":
+			eye = Vector3(0, 1.7, -30)
+			target = Vector3(150, 900, 0)
 		_:
-			camera.position = base + Vector3(0, 1.7, -30)
-			camera.look_at(base + Vector3(150, 900, 0))
+			eye.y += Stage.ground_y(0.0, 4.0, amp)
+	camera.position = xf * eye
+	camera.look_at(xf * target, up)
 	# The far side is 2 km away: ground fog would wash it out, so fog is only for ground-level views.
 	env_node.environment.fog_enabled = view != "overhead"
 
@@ -106,20 +153,28 @@ func build_ui() -> void:
 	add_child(ui)
 	ui.add_child(label)
 	label.position = Vector2(30, 20)
-	label.add_theme_font_size_override("font_size", 30)
+	label.add_theme_font_size_override("font_size", 28)
+	var top := ui_row(-290.0, -170.0)
+	for id in Looks.IDS:
+		add_button(top, Looks.NAMES[id], set_look.bind(id))
+	for id in VIEWS:
+		add_button(top, VIEW_NAMES[id], set_view.bind(id))
+	var bottom := ui_row(-150.0, -30.0)
+	add_button(bottom, "-3시", step_hour.bind(-3.0))
+	add_button(bottom, "+3시", step_hour.bind(3.0))
+	add_button(bottom, "구역", toggle_zone)
+	add_button(bottom, "측정", start_bench)
+
+func ui_row(top: float, bottom: float) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 20)
 	ui.add_child(row)
 	row.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	row.offset_top = -150.0
-	row.offset_bottom = -30.0
+	row.offset_top = top
+	row.offset_bottom = bottom
 	row.offset_left = 30.0
 	row.offset_right = -30.0
-	for id in Looks.IDS:
-		add_button(row, Looks.NAMES[id], set_look.bind(id))
-	for id in VIEWS:
-		add_button(row, VIEW_NAMES[id], set_view.bind(id))
-	add_button(row, "측정", start_bench)
+	return row
 
 func add_button(row: HBoxContainer, text: String, action: Callable) -> void:
 	var b := Button.new()
@@ -138,9 +193,23 @@ func set_look(id: String) -> void:
 
 func set_view(id: String) -> void:
 	if bench_queue.is_empty():
+		var rebuild_needed := (id == "meadow") != (view == "meadow")
 		view = id
-		place_camera()
-		label.text = "%s / %s" % [Looks.NAMES[look], VIEW_NAMES[view]]
+		if rebuild_needed:
+			rebuild()
+		else:
+			apply_time()
+			place_camera()
+
+func step_hour(delta: float) -> void:
+	if bench_queue.is_empty():
+		hour = fposmod(hour + delta, 24.0)
+		apply_time()
+
+func toggle_zone() -> void:
+	if bench_queue.is_empty():
+		zone = "danger" if zone == "safe" else "safe"
+		rebuild()
 
 func start_bench() -> void:
 	if not bench_queue.is_empty():
