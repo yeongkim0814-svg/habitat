@@ -77,10 +77,22 @@ static func street(look: String, rng: RandomNumberGenerator, root: Node3D) -> vo
 
 static func field(look: String, rng: RandomNumberGenerator, root: Node3D) -> void:
 	root.add_child(ground(look, "soil", 3.0, 95.0, true))
-	var rock_mesh := SphereMesh.new()
-	rock_mesh.radial_segments = 7
-	rock_mesh.rings = 4
-	var rocks: Array[Transform3D] = []
+	rocks(look, rng, root)
+	plants(look, rng, root)
+
+static func rocks(look: String, rng: RandomNumberGenerator, root: Node3D) -> void:
+	var mesh := SphereMesh.new()
+	mesh.radial_segments = 7
+	mesh.rings = 4
+	var xforms: Array[Transform3D] = []
+	for i in range(110):
+		var p := Vector3(rng.randf_range(-HALF_X, HALF_X), 0.0, rng.randf_range(8.0, 92.0))
+		var s := rng.randf_range(0.8, 3.2)
+		var b := Basis(Vector3.UP, rng.randf() * TAU) * Basis.from_scale(Vector3(s * rng.randf_range(0.8, 1.6), s * rng.randf_range(0.5, 1.0), s * rng.randf_range(0.8, 1.4)))
+		xforms.append(Transform3D(b, p + Vector3(0, s * 0.25, 0)))
+	root.add_child(multimesh(mesh, Looks.material(look, "rock", true), xforms))
+
+static func plants(look: String, rng: RandomNumberGenerator, root: Node3D) -> void:
 	var stalk_mesh := CylinderMesh.new()
 	stalk_mesh.top_radius = 0.02
 	stalk_mesh.bottom_radius = 0.11
@@ -98,11 +110,6 @@ static func field(look: String, rng: RandomNumberGenerator, root: Node3D) -> voi
 	var fronds: Array[Transform3D] = []
 	var frond_colors: Array[Color] = []
 	var bulbs: Array[Transform3D] = []
-	for i in range(110):
-		var p := Vector3(rng.randf_range(-HALF_X, HALF_X), 0.0, rng.randf_range(8.0, 92.0))
-		var s := rng.randf_range(0.8, 3.2)
-		var b := Basis(Vector3.UP, rng.randf() * TAU) * Basis.from_scale(Vector3(s * rng.randf_range(0.8, 1.6), s * rng.randf_range(0.5, 1.0), s * rng.randf_range(0.8, 1.4)))
-		rocks.append(Transform3D(b, p + Vector3(0, s * 0.25, 0)))
 	for i in range(420):
 		var p := Vector3(rng.randf_range(-HALF_X, HALF_X), 0.0, rng.randf_range(6.0, 94.0))
 		var h := rng.randf_range(1.0, 4.2)
@@ -110,11 +117,9 @@ static func field(look: String, rng: RandomNumberGenerator, root: Node3D) -> voi
 		stalks.append(Transform3D(Basis(Vector3.UP, yaw) * Basis.from_scale(Vector3(1.0, h, 1.0)), p + Vector3(0, h * 0.5, 0)))
 		bulbs.append(Transform3D(Basis(), p + Vector3(0, h + 0.1, 0)))
 		for k in range(3):
-			var fh := h * (0.35 + 0.2 * k)
 			var tilt := Basis(Vector3.UP, yaw + k * 2.1) * Basis(Vector3.RIGHT, -0.6)
-			fronds.append(Transform3D(tilt, p + Vector3(0, fh, 0)))
+			fronds.append(Transform3D(tilt, p + Vector3(0, h * (0.35 + 0.2 * k), 0)))
 			frond_colors.append(Color.WHITE.darkened(rng.randf_range(0.0, 0.3)))
-	root.add_child(multimesh(rock_mesh, Looks.material(look, "rock", true), rocks))
 	root.add_child(multimesh(stalk_mesh, Looks.material(look, "stalk", true), stalks))
 	root.add_child(multimesh(frond_mesh, Looks.material(look, "frond", true), fronds, frond_colors))
 	root.add_child(multimesh(bulb_mesh, Looks.material(look, "bulb"), bulbs))
