@@ -54,6 +54,7 @@ func _init() -> void:
 	check(load("res://spikes/m0_look/world.gd") != null, "world.gd parses")
 	test_sun()
 	test_tuning()
+	test_flat_wall()
 	print("M0 tests: %s" % ("OK" if failures == 0 else "%d FAILED" % failures))
 	quit(1 if failures > 0 else 0)
 
@@ -105,4 +106,16 @@ func test_tuning() -> void:
 	panel.load_look("flat")
 	check(panel.values.colors.is_empty(), "a reset stays reset across rebuilds")
 	panel.free()
+	Looks.live.clear()
+
+func test_flat_wall() -> void:
+	Looks.live.clear()
+	var wall := Looks.material("flat", "wall")
+	var other := Looks.material("flat", "street")
+	check(wall.shader.code.contains("storey") and not other.shader.code.contains("storey"), "only the FLAT wall role draws windows")
+	check(Looks.material("psx", "wall").shader.code.contains("storey") == false, "other looks keep their own wall shader")
+	Looks.set_night(1.0)
+	check(is_equal_approx(wall.get_shader_parameter("night"), 1.0), "set_night reaches live wall materials")
+	Looks.set_night(0.0)
+	check(is_equal_approx(wall.get_shader_parameter("night"), 0.0), "set_night(0) turns lit windows off")
 	Looks.live.clear()
