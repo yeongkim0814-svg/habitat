@@ -8,6 +8,7 @@ signal tuned
 
 var look := "flat"
 var values: Dictionary = {"colors": {}}
+var sessions: Dictionary = {}
 var role_index := 0
 var role_label := Label.new()
 var readout := Label.new()
@@ -38,9 +39,9 @@ func _init() -> void:
 	add_slider(box, "s", "채도", 0.0, 1.0)
 	add_slider(box, "v", "명도", 0.0, 1.0)
 	box.add_child(HSeparator.new())
-	add_slider(box, "fog", "안개", 0.0, 0.004)
-	add_slider(box, "ambient", "주변광", 0.2, 1.6)
-	add_slider(box, "sun", "태양", 0.2, 1.6)
+	var names := {"fog": "안개", "ambient": "주변광", "sun": "태양"}
+	for key in Tuning.GLOBAL_KEYS:
+		add_slider(box, key, names[key], Tuning.GLOBAL_RANGES[key].x, Tuning.GLOBAL_RANGES[key].y)
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 10)
 	box.add_child(buttons)
@@ -80,8 +81,11 @@ func role() -> String:
 	return Tuning.ROLES[role_index]
 
 func load_look(new_look: String) -> void:
+	# Rebuilds (view, zone, look switches) must not drop unsaved edits: the first visit to a look reads the file, later ones reuse the session copy.
 	look = new_look
-	values = Tuning.load_look(look)
+	if not sessions.has(look):
+		sessions[look] = Tuning.load_look(look)
+	values = sessions[look]
 	Looks.tuned = values.colors.duplicate()
 	for key in Tuning.GLOBAL_KEYS:
 		set_slider(key, value(key))
@@ -117,6 +121,7 @@ func set_role_color(role_id: String, color: Color) -> void:
 
 func reset() -> void:
 	values = {"colors": {}}
+	sessions[look] = values
 	Looks.tuned.clear()
 	Looks.refresh_live(look)
 	for key in Tuning.GLOBAL_KEYS:

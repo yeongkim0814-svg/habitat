@@ -4,6 +4,8 @@ const FILE := "user://m0_tuning.json"
 const ROLES: Array[String] = ["street", "wall", "lamp", "soil", "rock", "stalk", "frond", "bulb", "ceiling", "meadow", "grass", "leaf", "conifer", "trunk"]
 const NAMES := {"street": "도로", "wall": "건물 벽", "lamp": "가로등", "soil": "흙", "rock": "바위", "stalk": "외계 줄기", "frond": "외계 잎", "bulb": "외계 열매", "ceiling": "머리 위 건물", "meadow": "초원 바닥", "grass": "풀", "leaf": "활엽수 잎", "conifer": "침엽수", "trunk": "나무 줄기"}
 const GLOBAL_KEYS: Array[String] = ["fog", "ambient", "sun"]
+# Slider ranges double as the valid range of saved values, so a hand-edited file cannot turn lighting off or blow it out.
+const GLOBAL_RANGES := {"fog": Vector2(0.0, 0.004), "ambient": Vector2(0.2, 1.6), "sun": Vector2(0.2, 1.6)}
 
 static func parse(text: String) -> Variant:
 	# JSON.parse_string logs an engine error on bad input; a damaged tuning file should fail quietly.
@@ -37,7 +39,7 @@ static func decode(look: String, text: String) -> Dictionary:
 	for key in GLOBAL_KEYS:
 		var value: Variant = parsed[look].get(key)
 		if value is float or value is int:
-			out[key] = float(value)
+			out[key] = clampf(float(value), GLOBAL_RANGES[key].x, GLOBAL_RANGES[key].y)
 	return out
 
 static func load_look(look: String) -> Dictionary:

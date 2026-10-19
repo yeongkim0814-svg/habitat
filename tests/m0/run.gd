@@ -83,6 +83,8 @@ func test_tuning() -> void:
 	check(Tuning.decode("flat", "not json").colors.is_empty(), "garbage file gives empty tuning")
 	var messy := Tuning.decode("flat", '{"flat": {"colors": {"rock": "zzz", "nothing": "#ffffff", "wall": "#102030"}, "fog": "x"}}')
 	check(messy.colors.size() == 1 and messy.colors.has("wall") and not messy.has("fog"), "bad roles, colors and globals are dropped")
+	var wild := Tuning.decode("flat", '{"flat": {"sun": -1, "ambient": 100, "fog": 5}}')
+	check(wild.sun == Tuning.GLOBAL_RANGES.sun.x and wild.ambient == Tuning.GLOBAL_RANGES.ambient.y and wild.fog == Tuning.GLOBAL_RANGES.fog.y, "out-of-range globals are clamped to the slider ranges")
 	for role in Tuning.ROLES:
 		check(Tuning.NAMES.has(role) and Looks.PALETTE["flat"].has(role), "tunable role %s has a name and a palette color" % role)
 	Looks.live.clear()
@@ -92,11 +94,15 @@ func test_tuning() -> void:
 	check((m.get_shader_parameter("base_color") as Color).is_equal_approx(Color.RED), "refresh_live recolors existing materials")
 	Looks.tuned = {}
 	var panel := TuningPanel.new()
-	panel.look = "flat"
+	panel.load_look("flat")
 	panel.set_role_color("leaf", Color.BLUE)
 	check(panel.values.colors.leaf == Color.BLUE and Looks.tuned.leaf == Color.BLUE, "panel color change lands in values and Looks.tuned")
 	check(is_equal_approx(panel.value("fog"), Looks.FOG["flat"]) and panel.value("sun") == 1.0, "unset globals fall back to look defaults")
+	panel.load_look("flat")
+	check(panel.values.colors.has("leaf") and Looks.tuned.has("leaf"), "reloading the same look keeps unsaved edits")
 	panel.reset()
 	check(Looks.tuned.is_empty() and panel.values.colors.is_empty(), "reset clears tuning")
+	panel.load_look("flat")
+	check(panel.values.colors.is_empty(), "a reset stays reset across rebuilds")
 	panel.free()
 	Looks.live.clear()
