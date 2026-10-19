@@ -3,6 +3,7 @@ extends SceneTree
 const Looks = preload("res://spikes/m0_look/looks.gd")
 const Stage = preload("res://spikes/m0_look/stage.gd")
 const Sun = preload("res://spikes/m0_look/sun.gd")
+const Buildings = preload("res://spikes/m0_look/buildings.gd")
 const Tuning = preload("res://spikes/m0_look/tuning.gd")
 const TuningPanel = preload("res://spikes/m0_look/tuning_panel.gd")
 const ROLES: Array[String] = ["street", "wall", "lamp", "soil", "rock", "stalk", "frond", "bulb", "ceiling", "meadow", "grass", "leaf", "conifer", "trunk"]
@@ -55,6 +56,7 @@ func _init() -> void:
 	test_sun()
 	test_tuning()
 	test_flat_wall()
+	test_buildings()
 	print("M0 tests: %s" % ("OK" if failures == 0 else "%d FAILED" % failures))
 	quit(1 if failures > 0 else 0)
 
@@ -119,3 +121,31 @@ func test_flat_wall() -> void:
 	Looks.set_night(0.0)
 	check(is_equal_approx(wall.get_shader_parameter("night"), 0.0), "set_night(0) turns lit windows off")
 	Looks.live.clear()
+
+func test_buildings() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3
+	var kinds := {}
+	for i in range(200):
+		var parts := Buildings.lot(rng, -1.0 if i % 2 == 0 else 1.0, -90.0, 12.0)
+		kinds[parts.size()] = true
+		check(parts.size() >= 1 and parts.size() <= 4, "a lot is 1-4 boxes (got %d)" % parts.size())
+		for p in parts:
+			var scale: Vector3 = p.xf.basis.get_scale()
+			check(scale.x > 0.0 and scale.y > 0.0 and scale.z > 0.0, "box has a size")
+			check(p.xf.origin.y - scale.y * 0.5 > -0.001, "box does not sink below the street")
+			check(absf(p.xf.origin.x) >= Buildings.NEAR, "box stays behind the street edge")
+	check(kinds.size() >= 3, "archetypes differ in box count (got %d kinds)" % kinds.size())
+	var a := RandomNumberGenerator.new()
+	var b := RandomNumberGenerator.new()
+	a.seed = 9
+	b.seed = 9
+	check(Buildings.lot(a, 1.0, 0.0, 12.0).size() == Buildings.lot(b, 1.0, 0.0, 12.0).size(), "lots are deterministic per seed")
+	var root := Node3D.new()
+	Stage.street("flat", rng, root)
+	var found := false
+	for child in root.get_children():
+		if child is MultiMeshInstance3D and (child as MultiMeshInstance3D).multimesh.use_custom_data:
+			found = true
+	check(found, "street walls carry per-box custom data")
+	root.free()

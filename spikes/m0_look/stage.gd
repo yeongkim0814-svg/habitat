@@ -4,6 +4,7 @@ extends RefCounted
 const Looks = preload("res://spikes/m0_look/looks.gd")
 const Cylinder = preload("res://spikes/s2_cylinder/cylinder.gd")
 const Nature = preload("res://spikes/m0_look/nature.gd")
+const Buildings = preload("res://spikes/m0_look/buildings.gd")
 const HALF_X := 25.0
 const RING_HALF_LENGTH := 2500.0 # look-dev only: the real habitat is long; S2's 200 m ring would show sky past its ends.
 const FLOOR_LIFT := 0.45 # floor curves up 0.31 m at x = 25 (R = 1000); the stage ground sits above it.
@@ -11,16 +12,19 @@ const FLOOR_LIFT := 0.45 # floor curves up 0.31 m at x = 25 (R = 1000); the stag
 static func origin() -> Vector3:
 	return Vector3(0, -Cylinder.R, 0)
 
-static func multimesh(mesh: Mesh, material: Material, xforms: Array[Transform3D], colors: Array[Color] = []) -> MultiMeshInstance3D:
+static func multimesh(mesh: Mesh, material: Material, xforms: Array[Transform3D], colors: Array[Color] = [], custom: Array[Color] = []) -> MultiMeshInstance3D:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = not colors.is_empty()
+	mm.use_custom_data = not custom.is_empty()
 	mm.mesh = mesh
 	mm.instance_count = xforms.size()
 	for i in range(xforms.size()):
 		mm.set_instance_transform(i, xforms[i])
 		if mm.use_colors:
 			mm.set_instance_color(i, colors[i])
+		if mm.use_custom_data:
+			mm.set_instance_custom_data(i, custom[i])
 	var node := MultiMeshInstance3D.new()
 	node.multimesh = mm
 	node.material_override = material
@@ -59,25 +63,26 @@ static func ground(look: String, role: String, z0: float, z1: float, amp: float)
 	return node
 
 static func street(look: String, rng: RandomNumberGenerator, root: Node3D) -> void:
-	root.add_child(ground(look, "street", -95.0, -3.0, 0.0))
+	root.add_child(ground(look, "street", -95.0, 3.0, 0.0))
 	var box := BoxMesh.new()
 	var walls: Array[Transform3D] = []
 	var wall_colors: Array[Color] = []
+	var wall_custom: Array[Color] = []
 	var lamps: Array[Transform3D] = []
 	var bulbs: Array[Transform3D] = []
 	for row in range(2):
 		var side := -1.0 if row == 0 else 1.0
 		var z := -92.0
 		while z < -8.0:
-			var w := rng.randf_range(8.0, 14.0)
-			var h := rng.randf_range(6.0, 16.0)
-			var d := rng.randf_range(8.0, 12.0)
-			walls.append(Transform3D(Basis.from_scale(Vector3(w, h, d)), Vector3(side * (16.0 + w * 0.5), h * 0.5, z + d * 0.5)))
-			wall_colors.append(Color.WHITE.darkened(rng.randf_range(0.0, 0.25)))
+			var d := rng.randf_range(10.0, 16.0)
+			for p in Buildings.lot(rng, side, z, d):
+				walls.append(p.xf)
+				wall_colors.append(p.color)
+				wall_custom.append(p.custom)
 			lamps.append(Transform3D(Basis.from_scale(Vector3(0.12, 4.0, 0.12)), Vector3(side * 6.0, 2.0, z + 3.0)))
 			bulbs.append(Transform3D(Basis.from_scale(Vector3(0.5, 0.5, 0.5)), Vector3(side * 6.0, 4.1, z + 3.0)))
 			z += d + rng.randf_range(1.0, 3.0)
-	root.add_child(multimesh(box, Looks.material(look, "wall", true), walls, wall_colors))
+	root.add_child(multimesh(box, Looks.material(look, "wall", true), walls, wall_colors, wall_custom))
 	root.add_child(multimesh(box, Looks.material(look, "lamp"), lamps))
 	var sphere := SphereMesh.new()
 	sphere.radial_segments = 6

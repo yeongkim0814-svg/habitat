@@ -92,20 +92,22 @@ const SHADER_FLAT_WALL := """
 shader_type spatial;
 // FLAT wall with windows, doors and floor lines drawn in metres on the building's own frame. Instances are unit boxes
 // scaled per building, so VERTEX * scale gives metres without UVs or extra meshes (MultiMesh stays, D19).
+// INSTANCE_CUSTOM = (storey height, bay width, window width, door flag); zero falls back to the uniforms.
 uniform vec4 base_color : source_color = vec4(1.0);
 uniform float emit = 0.0;
 uniform float night = 0.0;
-uniform float storey = 3.2;
-uniform float bay = 3.0;
-uniform vec2 win_size = vec2(1.5, 1.7);
+uniform float storey_default = 3.2;
+uniform float bay_default = 3.0;
 uniform vec4 glass_color : source_color = vec4(0.14, 0.2, 0.3, 1.0);
 uniform vec4 lit_color : source_color = vec4(1.0, 0.82, 0.5, 1.0);
 varying vec4 vcol;
 varying vec3 vloc;
 varying vec3 vsize;
 varying vec3 nloc;
+varying vec4 vcust;
 void vertex() {
 	vcol = COLOR;
+	vcust = INSTANCE_CUSTOM;
 	vsize = vec3(length(MODEL_MATRIX[0].xyz), length(MODEL_MATRIX[1].xyz), length(MODEL_MATRIX[2].xyz));
 	vloc = VERTEX * vsize + vec3(0.0, vsize.y * 0.5, 0.0);
 	nloc = NORMAL;
@@ -115,8 +117,12 @@ void fragment() {
 	NORMAL = normalize(cross(dFdx(VERTEX), dFdy(VERTEX)));
 	vec3 col = base_color.rgb * vcol.rgb;
 	vec3 emis = vec3(0.0);
-	// Interpolated varyings carry ~1e-7 noise; rounding keeps floor() and the hash below stable per building.
+	// Interpolated varyings carry ~1e-7 noise; rounding keeps floor() and the hash below stable per box.
 	vec3 sz = floor(vsize * 64.0 + 0.5) / 64.0;
+	vec4 cu = floor(vcust * 64.0 + 0.5) / 64.0;
+	float storey = cu.x > 0.5 ? cu.x : storey_default;
+	float bay = cu.y > 0.5 ? cu.y : bay_default;
+	vec2 win_size = vec2(cu.z > 0.2 ? cu.z : 1.5, storey * 0.53);
 	if (abs(nloc.y) < 0.5) {
 		bool along_z = abs(nloc.x) > 0.5;
 		float len = along_z ? sz.z : sz.x;
@@ -125,14 +131,15 @@ void fragment() {
 		float nf = floor(sz.y / storey);
 		float pu = (u - (len - nb * bay) * 0.5) / bay;
 		float pv = vloc.y / storey;
+		col *= 1.0 - 0.14 * step(sz.y - 0.35, vloc.y);
 		if (pu >= 0.0 && pu < nb && pv < nf) {
 			vec2 cell = vec2(floor(pu), floor(pv));
 			vec2 f = vec2(fract(pu) * bay, fract(pv) * storey);
-			vec2 lo = vec2((bay - win_size.x) * 0.5, 0.9);
+			vec2 lo = vec2((bay - win_size.x) * 0.5, storey * 0.28);
 			vec2 hi = lo + win_size;
-			float seed = hash(sz.xz + vec2(along_z ? 1.0 : 0.0, 0.0));
+			float seed = hash(sz.xz + vec2(along_z ? 1.0 : 0.0, cu.x + cu.y));
 			float fade = 1.0 - smoothstep(70.0, 150.0, length(VERTEX));
-			bool door = cell.y < 0.5 && mod(cell.x + floor(seed * 3.0), 3.0) < 0.5;
+			bool door = cu.w > 0.5 && cell.y < 0.5 && mod(cell.x + floor(seed * 3.0), 3.0) < 0.5;
 			if (door) {
 				lo = vec2((bay - 1.1) * 0.5, 0.0);
 				hi = lo + vec2(1.1, 2.2);
