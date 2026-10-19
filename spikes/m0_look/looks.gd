@@ -10,6 +10,10 @@ const PALETTE := {
 	"paint": {"street": Color(0.50, 0.54, 0.62), "wall": Color(0.90, 0.84, 0.72), "lamp": Color(1.0, 0.92, 0.6), "soil": Color(0.42, 0.34, 0.40), "rock": Color(0.50, 0.53, 0.60), "stalk": Color(0.16, 0.62, 0.58), "frond": Color(0.28, 0.80, 0.62), "bulb": Color(1.0, 0.55, 0.82), "ceiling": Color(0.68, 0.74, 0.88), "meadow": Color(0.30, 0.56, 0.26), "grass": Color(0.46, 0.78, 0.32), "leaf": Color(0.32, 0.70, 0.36), "conifer": Color(0.16, 0.50, 0.36), "trunk": Color(0.72, 0.56, 0.38)},
 }
 # Screen shrink for the SubViewportContainer: PSX renders at 1/4 resolution and is upscaled with nearest filtering.
+# Live tuning (dev tool): role color overrides on top of PALETTE, and every material handed out so sliders update the scene at once.
+static var tuned: Dictionary = {}
+static var live: Dictionary = {}
+
 const SHRINK := {"psx": 4, "toon": 1, "flat": 1, "paint": 1}
 const FOG := {"psx": 0.0012, "toon": 0.0007, "flat": 0.0009, "paint": 0.0011}
 const SKY := {"psx": Color(0.22, 0.27, 0.30), "toon": Color(0.45, 0.60, 0.85), "flat": Color(0.72, 0.80, 0.90), "paint": Color(0.62, 0.78, 0.95)}
@@ -136,6 +140,14 @@ void light() {
 }
 """
 
+static func role_color(look: String, role: String) -> Color:
+	return tuned.get(role, PALETTE[look][role])
+
+static func refresh_live(look: String) -> void:
+	for role in live:
+		for m in live[role]:
+			m.set_shader_parameter("base_color", role_color(look, role))
+
 static func material(look: String, role: String, outline: bool = false) -> ShaderMaterial:
 	var shader := Shader.new()
 	match look:
@@ -145,7 +157,8 @@ static func material(look: String, role: String, outline: bool = false) -> Shade
 		_: shader.code = SHADER_FLAT
 	var m := ShaderMaterial.new()
 	m.shader = shader
-	m.set_shader_parameter("base_color", PALETTE[look][role])
+	m.set_shader_parameter("base_color", role_color(look, role))
+	live.get_or_add(role, []).append(m)
 	m.set_shader_parameter("emit", 0.9 if role == "lamp" or role == "bulb" else 0.0)
 	if look == "paint":
 		m.set_shader_parameter("sway", 1.0 if role == "grass" else 0.0)
