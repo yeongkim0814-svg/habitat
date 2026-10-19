@@ -88,6 +88,73 @@ void fragment() {
 """
 
 
+const SHADER_FLAT_WALL := """
+shader_type spatial;
+// FLAT wall with windows, doors and floor lines drawn in metres on the building's own frame. Instances are unit boxes
+// scaled per building, so VERTEX * scale gives metres without UVs or extra meshes (MultiMesh stays, D19).
+uniform vec4 base_color : source_color = vec4(1.0);
+uniform float emit = 0.0;
+uniform float night = 0.0;
+uniform float storey = 3.2;
+uniform float bay = 3.0;
+uniform vec2 win_size = vec2(1.5, 1.7);
+uniform vec4 glass_color : source_color = vec4(0.14, 0.2, 0.3, 1.0);
+uniform vec4 lit_color : source_color = vec4(1.0, 0.82, 0.5, 1.0);
+varying vec4 vcol;
+varying vec3 vloc;
+varying vec3 vsize;
+varying vec3 nloc;
+void vertex() {
+	vcol = COLOR;
+	vsize = vec3(length(MODEL_MATRIX[0].xyz), length(MODEL_MATRIX[1].xyz), length(MODEL_MATRIX[2].xyz));
+	vloc = VERTEX * vsize + vec3(0.0, vsize.y * 0.5, 0.0);
+	nloc = NORMAL;
+}
+float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+void fragment() {
+	NORMAL = normalize(cross(dFdx(VERTEX), dFdy(VERTEX)));
+	vec3 col = base_color.rgb * vcol.rgb;
+	vec3 emis = vec3(0.0);
+	// Interpolated varyings carry ~1e-7 noise; rounding keeps floor() and the hash below stable per building.
+	vec3 sz = floor(vsize * 64.0 + 0.5) / 64.0;
+	if (abs(nloc.y) < 0.5) {
+		bool along_z = abs(nloc.x) > 0.5;
+		float len = along_z ? sz.z : sz.x;
+		float u = (along_z ? vloc.z : vloc.x) + len * 0.5;
+		float nb = floor(len / bay);
+		float nf = floor(sz.y / storey);
+		float pu = (u - (len - nb * bay) * 0.5) / bay;
+		float pv = vloc.y / storey;
+		if (pu >= 0.0 && pu < nb && pv < nf) {
+			vec2 cell = vec2(floor(pu), floor(pv));
+			vec2 f = vec2(fract(pu) * bay, fract(pv) * storey);
+			vec2 lo = vec2((bay - win_size.x) * 0.5, 0.9);
+			vec2 hi = lo + win_size;
+			float seed = hash(sz.xz + vec2(along_z ? 1.0 : 0.0, 0.0));
+			float fade = 1.0 - smoothstep(70.0, 150.0, length(VERTEX));
+			bool door = cell.y < 0.5 && mod(cell.x + floor(seed * 3.0), 3.0) < 0.5;
+			if (door) {
+				lo = vec2((bay - 1.1) * 0.5, 0.0);
+				hi = lo + vec2(1.1, 2.2);
+			}
+			float in_rect = step(lo.x, f.x) * step(f.x, hi.x) * step(lo.y, f.y) * step(f.y, hi.y);
+			vec3 glass = door ? vec3(0.32, 0.2, 0.14) : glass_color.rgb;
+			col = mix(col, glass, in_rect * fade * 0.85);
+			col *= 1.0 - 0.16 * step(f.y, 0.18) * (1.0 - in_rect) * fade;
+			col *= 1.0 - 0.25 * in_rect * step(hi.y - 0.2, f.y) * fade;
+			float lit = step(hash(cell + vec2(seed * 17.0, seed * 31.0)), 0.4);
+			emis = lit_color.rgb * lit * in_rect * night * (door ? 0.0 : 1.0) * fade;
+		}
+	} else if (nloc.y > 0.5) {
+		col *= 0.78;
+	}
+	ALBEDO = col;
+	EMISSION = col * emit + emis;
+	ROUGHNESS = 1.0;
+	SPECULAR = 0.0;
+}
+"""
+
 const SHADER_PAINT := """
 shader_type spatial;
 render_mode cull_disabled;
@@ -148,13 +215,18 @@ static func refresh_live(look: String) -> void:
 		for m in live[role]:
 			m.set_shader_parameter("base_color", role_color(look, role))
 
+static func set_night(amount: float) -> void:
+	# 0 = day, 1 = night: lit windows of the FLAT wall shader (other materials have no such uniform and ignore it).
+	for m in live.get("wall", []):
+		m.set_shader_parameter("night", amount)
+
 static func material(look: String, role: String, outline: bool = false) -> ShaderMaterial:
 	var shader := Shader.new()
 	match look:
 		"psx": shader.code = SHADER_PSX
 		"toon": shader.code = SHADER_TOON
 		"paint": shader.code = SHADER_PAINT
-		_: shader.code = SHADER_FLAT
+		_: shader.code = SHADER_FLAT_WALL if role == "wall" else SHADER_FLAT
 	var m := ShaderMaterial.new()
 	m.shader = shader
 	m.set_shader_parameter("base_color", role_color(look, role))

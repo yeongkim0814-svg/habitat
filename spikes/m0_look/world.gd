@@ -135,6 +135,7 @@ func apply_time() -> void:
 	sun.light_energy = Sun.light_energy(elev) * panel.value("sun")
 	sun.light_color = Sun.light_color(elev)
 	sun.visible = sun.light_energy > 0.0
+	Looks.set_night(1.0 - smoothstep(-4.0, 6.0, elev))
 	var env := env_node.environment
 	env.background_color = Sun.sky_color(elev)
 	env.fog_light_color = env.background_color
