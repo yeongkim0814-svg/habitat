@@ -6,8 +6,8 @@ const Sun = preload("res://spikes/m0_look/sun.gd")
 const Kit = preload("res://spikes/m0_look/ui_kit.gd")
 const TuningPanel = preload("res://spikes/m0_look/tuning_panel.gd")
 const Cylinder = preload("res://spikes/s2_cylinder/cylinder.gd")
-const VIEWS: Array[String] = ["street", "field", "meadow", "overhead"]
-const VIEW_NAMES := {"street": "거리", "field": "들판", "meadow": "초원", "overhead": "머리 위"}
+const VIEWS: Array[String] = ["street", "boundary", "field", "meadow", "overhead"]
+const VIEW_NAMES := {"street": "거리", "boundary": "경계", "field": "들판", "meadow": "초원", "overhead": "머리 위"}
 const ZONE_NAMES := {"safe": "안전구역", "danger": "오염구역"}
 const BENCH_FRAMES := 90
 const BENCH_SKIP := 12
@@ -110,7 +110,7 @@ func rebuild() -> void:
 	floor_root.transform = floor_xform()
 	content.add_child(floor_root)
 	Stage.street(look, rng, floor_root)
-	if view == "meadow":
+	if uses_meadow(view):
 		Stage.meadow(look, rng, floor_root)
 	else:
 		Stage.field(look, rng, floor_root)
@@ -144,16 +144,23 @@ func apply_time() -> void:
 	env.fog_density = panel.value("fog")
 	label.text = "%s / %s / %s / %02d시 (태양 고도 %d°)" % [Looks.NAMES[look], VIEW_NAMES[view], ZONE_NAMES[zone], int(hour), int(elev)]
 
+func uses_meadow(v: String) -> bool:
+	return v == "meadow" or v == "boundary"
+
 func place_camera() -> void:
 	var xf := floor_xform()
 	var up := xf.basis * Vector3.UP
-	var amp := 1.0 if view == "meadow" else 1.8
+	var amp := 1.0 if uses_meadow(view) else 1.8
 	var eye := Vector3(0, 1.7, 4)
 	var target := Vector3(0, 2.0, 60)
 	match view:
 		"street":
 			eye = Vector3(0, 1.7, -92)
 			target = Vector3(0, 3.0, -20)
+		"boundary":
+			# Street buildings on both sides, the meadow beyond the street end: one frame to judge how they fit.
+			eye = Vector3(0, 1.7, -50)
+			target = Vector3(0, 5.0, 40)
 		"overhead":
 			eye = Vector3(0, 1.7, -30)
 			target = Vector3(150, 900, 0)
@@ -203,7 +210,7 @@ func set_look(id: String) -> void:
 
 func set_view(id: String) -> void:
 	if bench_queue.is_empty():
-		var rebuild_needed := (id == "meadow") != (view == "meadow")
+		var rebuild_needed := uses_meadow(id) != uses_meadow(view)
 		view = id
 		if rebuild_needed:
 			rebuild()
