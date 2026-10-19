@@ -53,7 +53,7 @@ static func ground(look: String, role: String, z0: float, z1: float, amp: float)
 			for d in [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]:
 				var x: float = -HALF_X + (i + d.x) * step
 				var z: float = z0 + (j + d.y) * step
-				q.append(Vector3(x, ground_y(x, z, amp) if amp > 0.0 else 0.0, z))
+				q.append(Vector3(x, ground_y(x, z, amp) if amp > 0.0 else 0.2, z))
 			for k in [0, 1, 2, 0, 2, 3]:
 				st.add_vertex(q[k])
 	st.generate_normals()
