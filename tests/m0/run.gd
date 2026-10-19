@@ -135,6 +135,8 @@ func test_buildings() -> void:
 			check(scale.x > 0.0 and scale.y > 0.0 and scale.z > 0.0, "box has a size")
 			check(p.xf.origin.y - scale.y * 0.5 > -0.001, "box does not sink below the street")
 			check(absf(p.xf.origin.x) >= Buildings.NEAR, "box stays behind the street edge")
+			var top: float = p.xf.origin.y + scale.y * 0.5
+			check(top <= Buildings.MAX_FLOORS * 3.6 + 2.4 + 0.001, "building stays within 3 storeys plus roof structure (top %.1f)" % top)
 	check(kinds.size() >= 3, "archetypes differ in box count (got %d kinds)" % kinds.size())
 	var a := RandomNumberGenerator.new()
 	var b := RandomNumberGenerator.new()

@@ -4,6 +4,7 @@ extends RefCounted
 ## so the FLAT wall shader lays windows out per box. Boxes sit beside the street: x grows away from it.
 const NEAR := 16.0
 const TINTS: Array[Color] = [Color(1.0, 0.96, 0.9), Color(0.9, 0.95, 1.0), Color(1.0, 0.88, 0.82), Color(0.88, 0.96, 0.9)]
+const MAX_FLOORS := 3 # safe-zone buildings are at most 3 storeys tall (user decision); roof structures do not count.
 const STOREYS: Array[float] = [3.0, 3.2, 3.6]
 
 static func part(c: Dictionary, x0: float, w: float, y0: float, h: float, z: float, d: float, doors: bool) -> Dictionary:
@@ -31,8 +32,8 @@ static func block(c: Dictionary, rng: RandomNumberGenerator) -> Array[Dictionary
 	return out
 
 static func podium_tower(c: Dictionary, rng: RandomNumberGenerator) -> Array[Dictionary]:
-	var ph: float = 2.0 * c.storey
-	var th: float = (c.floors + 1) * c.storey
+	var ph: float = c.storey
+	var th: float = (maxf(2.0, c.floors) - 1.0) * c.storey
 	return [
 		part(c, 0.0, c.w, 0.0, ph, c.zc, c.d, true),
 		part(c, 2.0, c.w - 4.0, ph, th, c.zc, c.d - 4.0, false),
@@ -51,20 +52,19 @@ static func l_shape(c: Dictionary, rng: RandomNumberGenerator) -> Array[Dictiona
 	]
 
 static func stepped(c: Dictionary, rng: RandomNumberGenerator) -> Array[Dictionary]:
-	# Each tier steps back from the street side and loses a storey.
-	var out: Array[Dictionary] = []
-	var y := 0.0
-	for i in range(3):
-		var f := maxf(1.0, c.floors - i)
-		out.append(part(c, i * 2.5, c.w - i * 2.5, y, f * c.storey, c.zc, c.d - i * 2.0, i == 0))
-		y += f * c.storey
-	return out
+	# Two tiers; the upper one steps back from the street side. Total stays within MAX_FLOORS.
+	var f0 := maxf(1.0, maxf(2.0, c.floors) - 1.0)
+	var f1 := 1.0
+	return [
+		part(c, 0.0, c.w, 0.0, f0 * c.storey, c.zc, c.d, true),
+		part(c, 2.5, c.w - 2.5, f0 * c.storey, f1 * c.storey, c.zc, c.d - 2.0, false),
+	]
 
 static func lot(rng: RandomNumberGenerator, side: float, z0: float, d: float) -> Array[Dictionary]:
 	var bay := rng.randf_range(2.6, 3.8)
 	var c := {
 		"side": side, "z0": z0, "d": d, "zc": z0 + d * 0.5,
-		"w": rng.randf_range(10.0, 16.0), "floors": float(rng.randi_range(3, 6)),
+		"w": rng.randf_range(10.0, 16.0), "floors": float(rng.randi_range(1, MAX_FLOORS)),
 		"tint": TINTS[rng.randi() % TINTS.size()].darkened(rng.randf_range(0.0, 0.22)),
 		"storey": STOREYS[rng.randi() % STOREYS.size()], "bay": bay, "win": bay * rng.randf_range(0.42, 0.55),
 	}
