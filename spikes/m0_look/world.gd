@@ -20,6 +20,8 @@ var look := "psx"
 var view := "street"
 var bench_queue: Array[String] = []
 var bench_samples: Array[float] = []
+var cpu_samples: Array[float] = []
+var gpu_samples: Array[float] = []
 var bench_lines: Array[String] = []
 var bench_frame := 0
 var shot_frames := -1
@@ -48,7 +50,12 @@ func _ready() -> void:
 		if arg.begins_with("--shot="):
 			shot = arg.substr(7)
 	if shot != "":
-		var parts := shot.split(":")
+		# look:view:path, split at most twice so a path may contain ':' (e.g. C:/tmp/shot.png).
+		var parts := shot.split(":", true, 2)
+		if parts.size() != 3 or not parts[0] in Looks.IDS or not parts[1] in VIEWS or parts[2] == "":
+			push_error("M0: --shot expects <%s>:<%s>:<output.png>, got '%s'" % ["|".join(Looks.IDS), "|".join(VIEWS), shot])
+			get_tree().quit(2)
+			return
 		look = parts[0]
 		view = parts[1]
 		shot_path = parts[2]
@@ -139,7 +146,8 @@ func start_bench() -> void:
 	if not bench_queue.is_empty():
 		return
 	bench_lines.clear()
-	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	# Compatibility cannot uncap VSync, so frame time alone is capped by the refresh interval: also record renderer CPU/GPU time.
+	RenderingServer.viewport_set_measure_render_time(viewport.get_viewport_rid(), true)
 	for l in Looks.IDS:
 		for v in VIEWS:
 			bench_queue.append("%s:%s" % [l, v])
@@ -151,22 +159,20 @@ func next_bench() -> void:
 	view = parts[1]
 	rebuild()
 	bench_samples.clear()
+	cpu_samples.clear()
+	gpu_samples.clear()
 	bench_frame = 0
 
 func finish_bench_item() -> void:
 	var sorted := bench_samples.duplicate()
 	sorted.sort()
-	var mean := 0.0
-	for s in bench_samples:
-		mean += s
-	mean /= bench_samples.size()
 	var p95: float = sorted[int(sorted.size() * 0.95)]
-	var line := "M0 look=%s view=%s mean_ms=%.3f p95_ms=%.3f samples=%d refresh_hz=%s" % [look, view, mean, p95, bench_samples.size(), "%.0f" % DisplayServer.screen_get_refresh_rate()]
+	var gpu := mean_of(gpu_samples)
+	var line := "M0 look=%s view=%s mean_ms=%.3f p95_ms=%.3f render_cpu_mean_ms=%.3f render_gpu_mean_ms=%s samples=%d refresh_hz=%s vsync=%d" % [look, view, mean_of(bench_samples), p95, mean_of(cpu_samples), "%.3f" % gpu if gpu > 0.0 else "?", bench_samples.size(), refresh_text(), DisplayServer.window_get_vsync_mode()]
 	print(line)
 	bench_lines.append(line)
 	bench_queue.remove_at(0)
 	if bench_queue.is_empty():
-		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED)
 		label.text = "\n".join(bench_lines)
 		label.add_theme_font_size_override("font_size", 20)
 	else:
@@ -177,6 +183,9 @@ func _process(delta: float) -> void:
 		bench_frame += 1
 		if bench_frame > BENCH_SKIP:
 			bench_samples.append(delta * 1000.0)
+			var rid := viewport.get_viewport_rid()
+			cpu_samples.append(RenderingServer.viewport_get_measured_render_time_cpu(rid) + RenderingServer.get_frame_setup_time_cpu())
+			gpu_samples.append(RenderingServer.viewport_get_measured_render_time_gpu(rid))
 		if bench_samples.size() >= BENCH_FRAMES:
 			finish_bench_item()
 	if shot_frames > 0:
@@ -185,3 +194,16 @@ func _process(delta: float) -> void:
 			get_viewport().get_texture().get_image().save_png(shot_path)
 			print("M0 shot saved: ", shot_path)
 			get_tree().quit()
+
+func mean_of(values: Array[float]) -> float:
+	if values.is_empty():
+		return 0.0
+	var total := 0.0
+	for v in values:
+		total += v
+	return total / values.size()
+
+func refresh_text() -> String:
+	# screen_get_refresh_rate() is unavailable (NaN/-1) on some displays; show '?' instead.
+	var hz := DisplayServer.screen_get_refresh_rate()
+	return "%.0f" % hz if hz > 0.0 else "?"

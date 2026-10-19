@@ -14,7 +14,7 @@ godot --path . --rendering-driver opengl3 --resolution 1280x720 res://spikes/m0_
 godot --headless --path . -s tests/m0/run.gd
 ```
 
-화면 아래 버튼: 스타일 3개(PSX / TOON / FLAT), 시점 3개(거리 / 들판 / 머리 위), 측정. **측정**은 스타일 3 × 시점 3의 프레임 시간을 90프레임씩 재서 화면과 로그에 `M0 look=… view=… mean_ms=… p95_ms=…` 줄로 보여 준다(수직동기를 잠시 끄고 잰 뒤 되돌림).
+화면 아래 버튼: 스타일 3개(PSX / TOON / FLAT), 시점 3개(거리 / 들판 / 머리 위), 측정. **측정**은 스타일 3 × 시점 3을 90프레임씩 재서 화면과 로그에 `M0 look=… view=… mean_ms=… p95_ms=… render_cpu_mean_ms=… render_gpu_mean_ms=… vsync=…` 줄로 보여 준다. Compatibility 렌더러는 수직동기를 끌 수 없어 프레임 시간(mean_ms, p95_ms)이 주사율 간격에 묶이므로, **렌더러 CPU·GPU 시간(render_cpu_mean_ms, render_gpu_mean_ms)을 스타일 비교의 기준**으로 본다(S1 측정과 같은 방식, GPU 시간이 보고되지 않으면 `?`).
 
 ## 장면 구성
 
