@@ -161,6 +161,11 @@ func build_ui() -> void:
 	add_child(ui)
 	ui.add_child(label)
 	label.position = Vector2(30, 20)
+	# Dark backing so text stays readable over the 3D scene (benchmark results were lost in the background).
+	var backing := StyleBoxFlat.new()
+	backing.bg_color = Color(0, 0, 0, 0.7)
+	backing.set_content_margin_all(12.0)
+	label.add_theme_stylebox_override("normal", backing)
 	label.add_theme_font_size_override("font_size", 28)
 	var top := ui_row(-290.0, -170.0)
 	for id in Looks.IDS:
