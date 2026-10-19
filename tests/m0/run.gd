@@ -3,7 +3,7 @@ extends SceneTree
 const Looks = preload("res://spikes/m0_look/looks.gd")
 const Stage = preload("res://spikes/m0_look/stage.gd")
 const Sun = preload("res://spikes/m0_look/sun.gd")
-const ROLES: Array[String] = ["street", "wall", "lamp", "soil", "rock", "stalk", "frond", "bulb", "ceiling"]
+const ROLES: Array[String] = ["street", "wall", "lamp", "soil", "rock", "stalk", "frond", "bulb", "ceiling", "meadow", "grass", "leaf", "conifer", "trunk"]
 var failures := 0
 
 func check(ok: bool, what: String) -> void:
@@ -43,6 +43,12 @@ func _init() -> void:
 		check(count(root, "MultiMeshInstance3D") >= 8, "%s uses MultiMeshes for repeats" % look)
 		check(instances(root) > 2000, "%s has >2000 instances (got %d)" % [look, instances(root)])
 		root.free()
+		var meadow := Node3D.new()
+		Stage.meadow(look, rng, meadow)
+		check(count(meadow, "MeshInstance3D") == 1, "%s meadow has only the ground MeshInstance3D" % look)
+		check(count(meadow, "MultiMeshInstance3D") == 5, "%s meadow has 5 MultiMeshes (rocks, 3 tree parts, grass)" % look)
+		check(instances(meadow) > 2200 + 26 + 14 + 14, "%s meadow instance count (got %d)" % [look, instances(meadow)])
+		meadow.free()
 	check(load("res://spikes/m0_look/world.gd") != null, "world.gd parses")
 	test_sun()
 	print("M0 tests: %s" % ("OK" if failures == 0 else "%d FAILED" % failures))

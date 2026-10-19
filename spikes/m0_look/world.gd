@@ -64,22 +64,30 @@ func read_args() -> bool:
 		if arg.begins_with("--shot="):
 			shot = arg.substr(7)
 		elif arg.begins_with("--hour="):
-			hour = float(arg.substr(7))
-		elif arg.begins_with("--zone=") and arg.substr(7) in ZONE_NAMES:
+			var text := arg.substr(7)
+			if not text.is_valid_float() or float(text) < 0.0 or float(text) > 24.0:
+				return reject("--hour expects a number in 0-24, got '%s'" % text)
+			hour = float(text)
+		elif arg.begins_with("--zone="):
+			if not arg.substr(7) in ZONE_NAMES:
+				return reject("--zone expects one of %s, got '%s'" % [", ".join(ZONE_NAMES.keys()), arg.substr(7)])
 			zone = arg.substr(7)
 	if shot != "":
 		# look:view:path, split at most twice so a path may contain ':' (e.g. C:/tmp/shot.png).
 		var parts := shot.split(":", true, 2)
 		if parts.size() != 3 or not parts[0] in Looks.IDS or not parts[1] in VIEWS or parts[2] == "":
-			push_error("M0: --shot expects <%s>:<%s>:<output.png>, got '%s'" % ["|".join(Looks.IDS), "|".join(VIEWS), shot])
-			get_tree().quit(2)
-			return false
+			return reject("--shot expects <%s>:<%s>:<output.png>, got '%s'" % ["|".join(Looks.IDS), "|".join(VIEWS), shot])
 		look = parts[0]
 		view = parts[1]
 		shot_path = parts[2]
 		shot_frames = 8
 		ui.visible = false
 	return true
+
+func reject(message: String) -> bool:
+	push_error("M0: " + message)
+	get_tree().quit(2)
+	return false
 
 func floor_xform() -> Transform3D:
 	# Safe zone floor is at the bottom of the ring; the danger zone floor is at the top, so its stage is upside down.
