@@ -6,9 +6,12 @@ const Sun = preload("res://spikes/m0_look/sun.gd")
 const Kit = preload("res://spikes/m0_look/ui_kit.gd")
 const TuningPanel = preload("res://spikes/m0_look/tuning_panel.gd")
 const Cylinder = preload("res://spikes/s2_cylinder/cylinder.gd")
-const VIEWS: Array[String] = ["street", "boundary", "field", "meadow", "overhead"]
-const VIEW_NAMES := {"street": "거리", "boundary": "경계", "field": "들판", "meadow": "초원", "overhead": "머리 위"}
+const Tent = preload("res://spikes/m0_look/tent.gd")
+const VIEWS: Array[String] = ["street", "boundary", "field", "meadow", "overhead", "tent"]
+const VIEW_NAMES := {"street": "거리", "boundary": "경계", "field": "들판", "meadow": "초원", "overhead": "머리 위", "tent": "의무실"}
 const ZONE_NAMES := {"safe": "안전구역", "danger": "오염구역"}
+# Infirmary tent between the west lamp line (x = -6) and the buildings (x = -16), door facing the street.
+const TENT_XFORM := Transform3D(Basis(Vector3.UP, PI / 2.0), Vector3(-11.0, 0.2, -12.0))
 const BENCH_FRAMES := 90
 const BENCH_SKIP := 12
 
@@ -110,6 +113,9 @@ func rebuild() -> void:
 	floor_root.transform = floor_xform()
 	content.add_child(floor_root)
 	Stage.street(look, rng, floor_root)
+	var tent := Tent.build()
+	tent.transform = TENT_XFORM
+	floor_root.add_child(tent)
 	if uses_meadow(view):
 		Stage.meadow(look, rng, floor_root)
 	else:
@@ -143,6 +149,8 @@ func apply_time() -> void:
 	env.ambient_light_energy = Looks.AMBIENT[look] * lerpf(0.5, 0.8, smoothstep(-6.0, 10.0, elev)) * panel.value("ambient")
 	env.fog_density = panel.value("fog")
 	label.text = "%s / %s / %s / %02d시 (태양 고도 %d°)" % [Looks.NAMES[look], VIEW_NAMES[view], ZONE_NAMES[zone], int(hour), int(elev)]
+	if view == "tent" and not Tent.textures_found():
+		label.text += " / 텍스처 없음(assets 폴더 확인)"
 
 func uses_meadow(v: String) -> bool:
 	return v == "meadow" or v == "boundary"
@@ -164,6 +172,9 @@ func place_camera() -> void:
 		"overhead":
 			eye = Vector3(0, 1.7, -30)
 			target = Vector3(150, 900, 0)
+		"tent":
+			eye = Vector3(-4.0, 1.7, -6.5)
+			target = Vector3(-11.0, 1.3, -12.0)
 		_:
 			eye.y += Stage.ground_y(0.0, 4.0, amp)
 	camera.position = xf * eye

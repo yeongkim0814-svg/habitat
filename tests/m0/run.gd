@@ -6,6 +6,8 @@ const Sun = preload("res://spikes/m0_look/sun.gd")
 const Buildings = preload("res://spikes/m0_look/buildings.gd")
 const Tuning = preload("res://spikes/m0_look/tuning.gd")
 const TuningPanel = preload("res://spikes/m0_look/tuning_panel.gd")
+const Tent = preload("res://spikes/m0_look/tent.gd")
+const World = preload("res://spikes/m0_look/world.gd")
 const ROLES: Array[String] = ["street", "wall", "lamp", "soil", "rock", "stalk", "frond", "bulb", "ceiling", "meadow", "grass", "leaf", "conifer", "trunk"]
 var failures := 0
 
@@ -58,6 +60,7 @@ func _init() -> void:
 	test_flat_wall()
 	test_buildings()
 	test_flat_ground()
+	test_tent()
 	print("M0 tests: %s" % ("OK" if failures == 0 else "%d FAILED" % failures))
 	quit(1 if failures > 0 else 0)
 
@@ -170,3 +173,25 @@ func test_flat_ground() -> void:
 			clear = false
 	check(clear, "trees and grass stay off the farm plot")
 	Looks.live.clear()
+
+func test_tent() -> void:
+	var tent := Tent.build()
+	var meshes := tent.find_children("*", "MeshInstance3D", false, false)
+	check(meshes.size() <= 13 and count(tent, "MultiMeshInstance3D") == 0, "tent parts are merged per material (got %d meshes)" % meshes.size())
+	var tris := 0
+	var box := AABB()
+	for node in meshes:
+		var mi := node as MeshInstance3D
+		check(mi.material_override != null, "tent mesh %s has a material" % mi.name)
+		tris += mi.mesh.get_faces().size() / 3
+		box = box.merge(World.TENT_XFORM * mi.get_aabb()) if box.size != Vector3.ZERO else World.TENT_XFORM * mi.get_aabb()
+	check(tris > 1000 and tris < 30000, "tent triangle count is in budget (got %d)" % tris)
+	# Footprint stays between the west lamp line (x = -6) and the buildings (x = -16), on the street ground (z < 3).
+	check(box.position.x > -Buildings.NEAR and box.end.x < -6.0 and box.end.z < 3.0, "tent footprint clears lamps and buildings (%s)" % box)
+	var found := Tent.textures_found()
+	for kind in ["canvas", "pole", "crate"]:
+		var m := Tent.material(kind)
+		check(m.get_shader_parameter("tex_on") == (1.0 if found else 0.0), "%s texture flag matches assets presence (%s)" % [kind, found])
+	check(Tent.material("metal").get_shader_parameter("tex_on") == 0.0, "untextured kinds stay flat")
+	check("tent" in World.VIEWS and World.VIEW_NAMES.has("tent"), "infirmary view is listed for the benchmark")
+	tent.free()
