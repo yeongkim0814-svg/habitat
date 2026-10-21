@@ -242,6 +242,18 @@ func test_hospital() -> void:
 	var end := Hospital.landing(to_sun)
 	check(end.z < Hospital.HOLE.position.y and absf(end.x) <= Hospital.CORRIDOR_W * 0.5 + 0.001 and end.y >= -0.001, "sunlight through the hole lands in the corridor (%s)" % end)
 	check(is_equal_approx(end.y, 0.0), "steep sun lands on the floor (%s)" % end)
+	# The lit air is the roof hole swept along the light: hole corners sit on the prism's top face, and the path
+	# reaches below the floor, so the shaft ends where the corridor (floor, walls) cuts it, like the sunlight itself.
+	for ts in [to_sun, Vector3(0.41, 0.41, 0.82), Vector3(-0.41, 0.41, 0.82)]:
+		var b := Hospital.beam(ts)
+		var inv: Basis = (b.axes as Basis).inverse()
+		var corner := Vector3(Hospital.HOLE.end.x, Hospital.ROOF_TOP, Hospital.HOLE.end.y)
+		var c := inv * (corner - (b.origin as Vector3))
+		check(c.is_equal_approx(Vector3(0.5, 0.0, 0.5)), "hole corner is a corner of the beam prism (%s)" % c)
+		var floor_hit := (b.origin as Vector3) + (b.axes as Basis).y * (Hospital.ROOF_TOP / -(b.axes as Basis).y.y)
+		check(is_equal_approx(floor_hit.y, 0.0) and (inv * (floor_hit - (b.origin as Vector3))).y < 1.0, "the prism reaches the floor (%s)" % floor_hit)
+		var clip: AABB = b.clip
+		check(clip.position.y == 0.0 and is_equal_approx(clip.end.y, Hospital.ROOF_TOP) and is_equal_approx(clip.size.x, Hospital.CORRIDOR_W) and clip.position.z >= 0.0, "beam is cut by the corridor box (%s)" % clip)
 	Hospital.aim(h, to_sun, 0.8, Color.WHITE)
 	check((h.get_node("shaft") as Node3D).visible and (h.get_node("bounce") as Node3D).visible, "shaft and bounce are on in daylight")
 	Hospital.aim(h, Vector3(0.0, -0.3, 0.95), 0.8, Color.WHITE)
