@@ -14,7 +14,7 @@ const STAIR_TOP := 8.0 # the stairwell spans both floors
 const HOLE := Rect2(-1.2, 16.8, 2.4, 3.0) # collapsed roof section (x, z)
 # The suspended ceiling lost tiles over a wider area: the sun comes in at 35 degrees at most (D43), so a ceiling hole only
 # as big as the roof hole would cut the beam in half on its way down from the roof.
-const CEILING_HOLE := Rect2(-1.5, 15.6, 3.0, 4.2)
+const CEILING_HOLE := Rect2(-1.5, 14.6, 3.0, 5.2)
 const ROOM := Rect2(1.75, 7.0, 5.75, 7.0) # exam room interior (x, z)
 const ROOM_DOOR := Rect2(9.8, 0.0, 1.4, 2.3) # opening in the corridor east wall (z, y)
 const WINDOW := Rect2(9.5, 1.0, 3.0, 1.3) # boarded window in the room's outer wall (z, y)
@@ -116,12 +116,19 @@ void fragment() {
 
 const SHADER_SHAFT := """
 shader_type spatial;
-render_mode unshaded, blend_add, depth_draw_never, cull_disabled, shadows_disabled;
-// Light shaft under the roof hole: a sheared box from the hole down to where the sunlight lands, brighter near the hole,
-// with slow dust. Fades near the camera so walking through it does not flash.
+render_mode unshaded, blend_add, depth_draw_never, cull_front, shadows_disabled;
+// Light shaft under the roof hole. The lit air is the roof hole swept along the sunlight (a slanted prism) cut by the
+// corridor (floor and walls), so it ends exactly where the sunlight lands. Drawn on the back faces of a box around it:
+// each pixel intersects its view ray with the prism and with the corridor box (two slab tests) and glows with the
+// length of air it crosses. Coordinates are the shaft node's (the hospital frame shifted to the box centre).
 uniform vec3 col : source_color = vec3(1.0, 0.9, 0.7);
 uniform float strength = 0.0;
-varying vec3 bp;
+uniform vec3 prism_o; // roof hole centre at the roof top
+uniform mat3 prism_inv; // inverse of (hole width, light path to below the floor, hole depth): prism = [-0.5, 0.5] x [0, 1] x [-0.5, 0.5]
+uniform vec3 clip_min;
+uniform vec3 clip_max;
+varying vec3 lp;
+varying vec3 cam;
 float h(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vn(vec2 p) {
 	vec2 i = floor(p);
@@ -129,13 +136,30 @@ float vn(vec2 p) {
 	f = f * f * (3.0 - 2.0 * f);
 	return mix(mix(h(i), h(i + vec2(1.0, 0.0)), f.x), mix(h(i + vec2(0.0, 1.0)), h(i + vec2(1.0, 1.0)), f.x), f.y);
 }
-void vertex() { bp = VERTEX; }
+vec2 slab(vec3 ro, vec3 rd, vec3 lo, vec3 hi) {
+	vec3 inv = 1.0 / (rd + vec3(1e-6));
+	vec3 a = (lo - ro) * inv;
+	vec3 b = (hi - ro) * inv;
+	vec3 t0 = min(a, b);
+	vec3 t1 = max(a, b);
+	return vec2(max(max(t0.x, t0.y), t0.z), min(min(t1.x, t1.y), t1.z));
+}
+void vertex() {
+	lp = VERTEX;
+	cam = (inverse(MODEL_MATRIX) * vec4(CAMERA_POSITION_WORLD, 1.0)).xyz;
+}
 void fragment() {
-	float top = bp.y + 0.5;
-	float dust = 0.7 + 0.6 * vn(vec2((bp.x + bp.z) * 9.0, top * 14.0 - TIME * 0.3));
-	float near = smoothstep(0.6, 2.5, length(VERTEX));
+	// Ray from the camera (t = 0) to this back face (t = 1); anything in front of the face hides it by depth test.
+	vec3 rd = lp - cam;
+	vec2 room = slab(cam, rd, clip_min, clip_max);
+	vec2 beam = slab(prism_inv * (cam - prism_o), prism_inv * rd, vec3(-0.5, 0.0, -0.5), vec3(0.5, 1.0, 0.5));
+	float t0 = max(max(room.x, beam.x), 0.0);
+	float t1 = min(min(room.y, beam.y), 1.0);
+	float metres = max(t1 - t0, 0.0) * length(rd);
+	vec3 mid = cam + rd * (t0 + t1) * 0.5;
+	float dust = 0.75 + 0.5 * vn(vec2(mid.x * 3.0 + mid.z * 2.0, mid.y * 4.0 - TIME * 0.3));
 	ALBEDO = col;
-	ALPHA = clamp(strength * (0.25 + 0.75 * top) * dust * near * 0.18, 0.0, 1.0);
+	ALPHA = clamp(strength * (1.0 - exp(-metres * 0.4)) * dust * 0.45, 0.0, 1.0);
 }
 """
 
@@ -480,7 +504,7 @@ func debris(at: Vector3, amount := 1.0) -> void:
 		var tile := box_mesh(Vector3(0.6, 0.02, 0.6))
 		add("ceiling", tile, Transform3D(Basis(Vector3.RIGHT, 1.1), Vector3(-0.6, CEILING - 0.27, CEILING_HOLE.position.y + 0.05)))
 		# Bare T-bar grid left where the tiles fell.
-		for k in range(1, 7):
+		for k in range(1, int(CEILING_HOLE.size.y / 0.6)):
 			var z := CEILING_HOLE.position.y + k * 0.6
 			block("trim", Vector3(-CORRIDOR_W * 0.5, CEILING, z - 0.015), Vector3(CORRIDOR_W * 0.5 - 0.6 * float(k % 3 == 0), CEILING + 0.03, z + 0.015))
 		for k in range(5):
@@ -578,7 +602,20 @@ static func landing(to_sun: Vector3) -> Vector3:
 		t = minf(t, (LENGTH - top.z) / d.z)
 	return top + d * t
 
-# Sun through the roof hole: shaft from the hole to where the light lands, and a warm bounce light there.
+# The air lit through the roof hole, in the hospital frame: the prism (origin at the hole centre on the roof top, axes =
+# hole width, light path from the roof top to below the floor, hole depth) and the corridor box that cuts it.
+static func beam(to_sun: Vector3) -> Dictionary:
+	var d := -to_sun.normalized()
+	var w := CORRIDOR_W * 0.5
+	var path := d * (ROOF_TOP / -d.y + 0.5)
+	var z_low := clampf(HOLE.position.y + path.z, 0.0, HOLE.position.y)
+	return {
+		"origin": Vector3(HOLE.get_center().x, ROOF_TOP, HOLE.get_center().y),
+		"axes": Basis(Vector3(HOLE.size.x, 0, 0), path, Vector3(0, 0, HOLE.size.y)),
+		"clip": AABB(Vector3(-w, 0.0, z_low), Vector3(2.0 * w, ROOF_TOP, HOLE.end.y - z_low)),
+	}
+
+# Sun through the roof hole: the lit air (see beam()) and a warm bounce light where the centre of the light lands.
 # to_sun is the direction toward the sun in the hospital's frame; energy is the sun's light energy.
 static func aim(root: Node3D, to_sun: Vector3, energy: float, color: Color) -> void:
 	var shaft := root.get_node("shaft") as MeshInstance3D
@@ -588,10 +625,18 @@ static func aim(root: Node3D, to_sun: Vector3, energy: float, color: Color) -> v
 	bounce.visible = lit
 	if not lit:
 		return
-	var top := Vector3(HOLE.get_center().x, ROOF_TOP, HOLE.get_center().y)
 	var end := landing(to_sun)
-	shaft.transform = Transform3D(Basis(Vector3(HOLE.size.x, 0, 0), top - end, Vector3(0, 0, HOLE.size.y)), (top + end) * 0.5)
+	var b := beam(to_sun)
+	var clip: AABB = b.clip
+	var center := clip.get_center()
+	# The box mesh covers the clip box; the shader works in the shaft node's frame (hospital frame minus center).
+	(shaft.mesh as BoxMesh).size = clip.size
+	shaft.transform = Transform3D(Basis(), center)
 	var m := shaft.material_override as ShaderMaterial
+	m.set_shader_parameter("prism_o", (b.origin as Vector3) - center)
+	m.set_shader_parameter("prism_inv", (b.axes as Basis).inverse())
+	m.set_shader_parameter("clip_min", clip.position - center)
+	m.set_shader_parameter("clip_max", clip.end - center)
 	m.set_shader_parameter("col", color)
 	m.set_shader_parameter("strength", energy * to_sun.normalized().y)
 	var inward := Vector3(-end.x, 0.0, 0.0).limit_length(0.5)
