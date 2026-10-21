@@ -6,7 +6,7 @@ const NAMES := {"psx": "PSX", "toon": "TOON", "flat": "FLAT", "paint": "PAINT"}
 const PALETTE := {
 	"psx": {"street": Color(0.30, 0.29, 0.27), "wall": Color(0.46, 0.45, 0.42), "lamp": Color(1.0, 0.85, 0.5), "soil": Color(0.24, 0.20, 0.17), "rock": Color(0.36, 0.33, 0.30), "stalk": Color(0.22, 0.30, 0.20), "frond": Color(0.30, 0.42, 0.24), "bulb": Color(0.8, 0.9, 0.4), "ceiling": Color(0.38, 0.40, 0.44), "meadow": Color(0.26, 0.34, 0.22), "grass": Color(0.40, 0.52, 0.30), "leaf": Color(0.30, 0.42, 0.24), "conifer": Color(0.18, 0.30, 0.22), "trunk": Color(0.30, 0.24, 0.18)},
 	"toon": {"street": Color(0.40, 0.42, 0.50), "wall": Color(0.88, 0.80, 0.66), "lamp": Color(1.0, 0.92, 0.55), "soil": Color(0.36, 0.26, 0.34), "rock": Color(0.52, 0.48, 0.60), "stalk": Color(0.10, 0.62, 0.55), "frond": Color(0.20, 0.80, 0.60), "bulb": Color(1.0, 0.45, 0.80), "ceiling": Color(0.55, 0.62, 0.78), "meadow": Color(0.30, 0.72, 0.38), "grass": Color(0.45, 0.85, 0.40), "leaf": Color(0.25, 0.75, 0.45), "conifer": Color(0.10, 0.55, 0.45), "trunk": Color(0.62, 0.45, 0.32)},
-	"flat": {"street": Color(0.55, 0.57, 0.60), "wall": Color(0.82, 0.82, 0.80), "lamp": Color(1.0, 0.95, 0.80), "soil": Color(0.50, 0.44, 0.38), "rock": Color(0.62, 0.60, 0.58), "stalk": Color(0.35, 0.58, 0.42), "frond": Color(0.48, 0.72, 0.50), "bulb": Color(0.95, 0.75, 0.45), "ceiling": Color(0.70, 0.76, 0.84), "meadow": Color(0.52, 0.66, 0.42), "grass": Color(0.62, 0.74, 0.46), "leaf": Color(0.48, 0.68, 0.46), "conifer": Color(0.30, 0.52, 0.42), "trunk": Color(0.58, 0.48, 0.40)},
+	"flat": {"street": Color(0.60, 0.54, 0.45), "wall": Color(0.82, 0.82, 0.80), "lamp": Color(1.0, 0.95, 0.80), "soil": Color(0.50, 0.44, 0.38), "rock": Color(0.62, 0.60, 0.58), "stalk": Color(0.35, 0.58, 0.42), "frond": Color(0.48, 0.72, 0.50), "bulb": Color(0.95, 0.75, 0.45), "ceiling": Color(0.70, 0.76, 0.84), "meadow": Color(0.52, 0.66, 0.42), "grass": Color(0.62, 0.74, 0.46), "leaf": Color(0.48, 0.68, 0.46), "conifer": Color(0.30, 0.52, 0.42), "trunk": Color(0.58, 0.48, 0.40)},
 	"paint": {"street": Color(0.50, 0.54, 0.62), "wall": Color(0.90, 0.84, 0.72), "lamp": Color(1.0, 0.92, 0.6), "soil": Color(0.42, 0.34, 0.40), "rock": Color(0.50, 0.53, 0.60), "stalk": Color(0.16, 0.62, 0.58), "frond": Color(0.28, 0.80, 0.62), "bulb": Color(1.0, 0.55, 0.82), "ceiling": Color(0.68, 0.74, 0.88), "meadow": Color(0.30, 0.56, 0.26), "grass": Color(0.46, 0.78, 0.32), "leaf": Color(0.32, 0.70, 0.36), "conifer": Color(0.16, 0.50, 0.36), "trunk": Color(0.72, 0.56, 0.38)},
 }
 # Screen shrink for the SubViewportContainer: PSX renders at 1/4 resolution and is upscaled with nearest filtering.
@@ -162,6 +162,64 @@ void fragment() {
 }
 """
 
+const SHADER_FLAT_GROUND := """
+shader_type spatial;
+// FLAT stage ground drawn in metres on the stage frame (VERTEX.xz), without UVs or textures. kind: 0 village street
+// (packed-earth road, wheel ruts, grass verge, yards), 1 danger-zone soil (stains, cracks), 2 meadow (grass, bare
+// earth, one farm plot). Fine detail fades with distance so far ground does not shimmer.
+uniform vec4 base_color : source_color = vec4(1.0);
+uniform vec4 alt_color : source_color = vec4(1.0);
+uniform float emit = 0.0;
+uniform int kind = 0;
+uniform vec4 plot = vec4(-22.0, 12.0, -9.0, 42.0); // farm plot (x0, z0, x1, z1), matches Stage.PLOT
+varying vec3 vloc;
+void vertex() { vloc = VERTEX; }
+float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+float vnoise(vec2 x) {
+	vec2 i = floor(x);
+	vec2 f = fract(x);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+}
+void fragment() {
+	NORMAL = normalize(cross(dFdx(VERTEX), dFdy(VERTEX)));
+	vec2 p = vloc.xz;
+	float fade = 1.0 - smoothstep(40.0, 120.0, length(VERTEX));
+	float big = vnoise(p * 0.07);
+	float mid = vnoise(p * 0.35 + 17.0);
+	float fine = vnoise(p * 2.5 + 3.0);
+	vec3 col = base_color.rgb;
+	if (kind == 0) {
+		float ax = abs(p.x);
+		col *= 1.0 - 0.14 * (1.0 - smoothstep(0.2, 0.45, abs(ax - 1.1)));
+		col *= 1.0 - 0.12 * smoothstep(0.6, 0.85, fine) * fade;
+		float verge = smoothstep(3.0, 4.0 + mid * 2.0, ax);
+		col = mix(col, alt_color.rgb, verge * mix(1.0, 0.45, smoothstep(0.45, 0.7, big)));
+		col *= mix(0.9, 1.08, big);
+	} else if (kind == 1) {
+		col *= mix(0.78, 1.12, big);
+		col = mix(col, alt_color.rgb, smoothstep(0.6, 0.8, mid) * 0.6);
+		col *= 1.0 - 0.3 * (1.0 - smoothstep(0.0, 0.035, abs(vnoise(p * 0.6 + 5.0) - 0.5))) * fade;
+	} else {
+		col *= mix(0.86, 1.1, big) * mix(0.95, 1.05, mid);
+		col = mix(col, alt_color.rgb, smoothstep(0.72, 0.85, vnoise(p * 0.12 + 40.0)) * 0.8);
+		float inside = step(plot.x, p.x) * step(p.x, plot.z) * step(plot.y, p.y) * step(p.y, plot.w);
+		float row = fract(p.x / 1.2);
+		float crop = smoothstep(0.3, 0.42, row) * (1.0 - smoothstep(0.58, 0.7, row));
+		vec3 furrow = alt_color.rgb * (0.8 + 0.1 * (1.0 - smoothstep(0.0, 0.2, abs(row - 0.0))));
+		col = mix(col, mix(furrow, base_color.rgb * vec3(0.85, 1.12, 0.7), crop), inside);
+	}
+	col *= mix(1.0, 0.94 + 0.12 * fine, fade * 0.5);
+	ALBEDO = col;
+	EMISSION = col * emit;
+	ROUGHNESS = 1.0;
+	SPECULAR = 0.0;
+}
+"""
+# Second colour of the FLAT ground per role: road verge grass, alien stains on soil, bare earth and furrows in the meadow.
+const GROUND_KIND := {"street": 0, "soil": 1, "meadow": 2}
+const GROUND_ALT := {"street": Color(0.50, 0.62, 0.40), "soil": Color(0.40, 0.46, 0.46), "meadow": Color(0.56, 0.47, 0.36)}
+
 const SHADER_PAINT := """
 shader_type spatial;
 render_mode cull_disabled;
@@ -227,18 +285,23 @@ static func set_night(amount: float) -> void:
 	for m in live.get("wall", []):
 		m.set_shader_parameter("night", amount)
 
-static func material(look: String, role: String, outline: bool = false) -> ShaderMaterial:
+static func material(look: String, role: String, outline: bool = false, ground: bool = false) -> ShaderMaterial:
+	# ground = the stage ground mesh (street, soil, meadow); FLAT draws it with SHADER_FLAT_GROUND, the ring keeps SHADER_FLAT.
 	var shader := Shader.new()
+	var flat_ground := look == "flat" and ground and GROUND_KIND.has(role)
 	match look:
 		"psx": shader.code = SHADER_PSX
 		"toon": shader.code = SHADER_TOON
 		"paint": shader.code = SHADER_PAINT
-		_: shader.code = SHADER_FLAT_WALL if role == "wall" else SHADER_FLAT
+		_: shader.code = SHADER_FLAT_GROUND if flat_ground else (SHADER_FLAT_WALL if role == "wall" else SHADER_FLAT)
 	var m := ShaderMaterial.new()
 	m.shader = shader
 	m.set_shader_parameter("base_color", role_color(look, role))
 	live.get_or_add(role, []).append(m)
 	m.set_shader_parameter("emit", 0.9 if role == "lamp" or role == "bulb" else 0.0)
+	if flat_ground:
+		m.set_shader_parameter("kind", GROUND_KIND[role])
+		m.set_shader_parameter("alt_color", GROUND_ALT[role])
 	if look == "paint":
 		m.set_shader_parameter("sway", 1.0 if role == "grass" else 0.0)
 		m.set_shader_parameter("round_crown", 1.0 if role == "leaf" else 0.0)
