@@ -7,6 +7,7 @@ const Buildings = preload("res://spikes/m0_look/buildings.gd")
 const Tuning = preload("res://spikes/m0_look/tuning.gd")
 const TuningPanel = preload("res://spikes/m0_look/tuning_panel.gd")
 const Tent = preload("res://spikes/m0_look/tent.gd")
+const Hospital = preload("res://spikes/m0_look/hospital.gd")
 const World = preload("res://spikes/m0_look/world.gd")
 const ROLES: Array[String] = ["street", "wall", "lamp", "soil", "rock", "stalk", "frond", "bulb", "ceiling", "meadow", "grass", "leaf", "conifer", "trunk"]
 var failures := 0
@@ -62,6 +63,7 @@ func _init() -> void:
 	test_flat_ground()
 	test_tent()
 	test_hemi()
+	test_hospital()
 	print("M0 tests: %s" % ("OK" if failures == 0 else "%d FAILED" % failures))
 	quit(1 if failures > 0 else 0)
 
@@ -195,18 +197,6 @@ func test_tent() -> void:
 		check(m.get_shader_parameter("tex_on") == (1.0 if found else 0.0), "%s texture flag matches assets presence (%s)" % [kind, found])
 	check(Tent.material("metal").get_shader_parameter("tex_on") == 0.0, "untextured kinds stay flat")
 	check("tent" in World.VIEWS and World.VIEW_NAMES.has("tent"), "infirmary view is listed for the benchmark")
-	var items := World.bench_items()
-	check(items.size() == Looks.IDS.size() * World.VIEWS.size() * 4, "benchmark measures every look x view twice with the tent on and twice off (got %d)" % items.size())
-	var abba := true
-	for i in range(0, items.size(), 4):
-		var head := items[i].split(":")
-		for k in range(4):
-			var p := items[i + k].split(":")
-			abba = abba and p[0] == head[0] and p[1] == head[1] and p[2] == ["on", "off", "off", "on"][k]
-	check(abba, "each look x view is measured on, off, off, on back to back (drift cancels within the row)")
-	check(is_equal_approx(World.mean_gpu([3.0, 3.5]), 3.25) and World.mean_gpu([3.0, 0.0]) == 0.0, "GPU mean is 0 (unavailable) if any run had no GPU timing")
-	check(World.cost_line("flat", "tent", 3.5, 0.0).contains("GPU 시간 없음"), "summary says GPU timing is unavailable instead of showing 0")
-	check(World.cost_line("flat", "tent", 3.5, 3.25).ends_with("+0.25 ms"), "cost line shows on - off")
 	tent.free()
 
 func test_hemi() -> void:
@@ -221,3 +211,54 @@ func test_hemi() -> void:
 	var noon := World.ground_bounce(60.0, Looks.PALETTE["flat"]["street"])
 	var night := World.ground_bounce(-20.0, Looks.PALETTE["flat"]["street"])
 	check(noon.r > noon.b and noon.get_luminance() > night.get_luminance() * 2.0, "ground bounce is warm by day and dim at night")
+
+func test_hospital() -> void:
+	var h := Hospital.build()
+	var meshes := h.find_children("*", "MeshInstance3D", false, false)
+	var tris := 0
+	var box := AABB()
+	var chunks := {}
+	for node in meshes:
+		var mi := node as MeshInstance3D
+		if mi.name == "shaft":
+			continue
+		check(mi.material_override != null, "hospital mesh %s has a material" % mi.name)
+		chunks[String(mi.name).split("_")[0]] = true
+		tris += mi.mesh.get_faces().size() / 3
+		box = box.merge(World.HOSPITAL_XFORM * mi.get_aabb()) if box.size != Vector3.ZERO else World.HOSPITAL_XFORM * mi.get_aabb()
+	check(meshes.size() <= 90 and count(h, "MultiMeshInstance3D") == 0, "hospital parts are merged per chunk and material (got %d meshes)" % meshes.size())
+	check(chunks.keys().size() == 5 and chunks.has("room") and chunks.has("stair"), "hospital has 5 chunks: corridor thirds, room, stairwell (%s)" % [chunks.keys()])
+	check(tris > 2000 and tris < 60000, "hospital triangle count is in budget (got %d)" % tris)
+	# Beyond the street end (its ground stops at z = -95) and inside the stage width.
+	check(box.end.z < -100.0 and box.position.x > -Stage.HALF_X and box.end.x < Stage.HALF_X, "hospital clears the street (%s)" % box)
+	check(Hospital.CORRIDOR_W == 3.0 and Hospital.CEILING == 4.0, "corridor follows the D53 module (3 m wide, 4 m ceiling)")
+	var omni := h.find_children("*", "OmniLight3D", false, false)
+	check(omni.size() == 4, "3 emergency lights and the sun bounce light (got %d)" % omni.size())
+	for light in omni:
+		check(not (light as OmniLight3D).shadow_enabled, "%s casts no shadows" % light.name)
+	check(Hospital.chunk_of(Vector3(0, 1, 2)) == "c0" and Hospital.chunk_of(Vector3(0, 1, 23)) == "c2" and Hospital.chunk_of(Vector3(4, 1, 10)) == "room" and Hospital.chunk_of(Vector3(0, 1, 27)) == "stair", "parts are filed under the right chunk")
+	# Sun high along the axis: the shaft lands down the corridor, on the floor or a wall, inside the corridor.
+	var to_sun := Vector3(0.0, sin(deg_to_rad(35.0)), cos(deg_to_rad(35.0)))
+	var end := Hospital.landing(to_sun)
+	check(end.z < Hospital.HOLE.position.y and absf(end.x) <= Hospital.CORRIDOR_W * 0.5 + 0.001 and end.y >= -0.001, "sunlight through the hole lands in the corridor (%s)" % end)
+	check(is_equal_approx(end.y, 0.0), "steep sun lands on the floor (%s)" % end)
+	Hospital.aim(h, to_sun, 0.8, Color.WHITE)
+	check((h.get_node("shaft") as Node3D).visible and (h.get_node("bounce") as Node3D).visible, "shaft and bounce are on in daylight")
+	Hospital.aim(h, Vector3(0.0, -0.3, 0.95), 0.8, Color.WHITE)
+	check(not (h.get_node("shaft") as Node3D).visible and not (h.get_node("bounce") as Node3D).visible, "shaft and bounce are off with the sun below the roof")
+	check("hospital" in World.VIEWS and World.VIEW_NAMES.has("hospital"), "hospital view is listed for the benchmark")
+	# Benchmark: flashlight off, on, shadow, shadow, on, off per look x view.
+	var items := World.bench_items()
+	check(items.size() == Looks.IDS.size() * World.VIEWS.size() * 6, "benchmark measures every look x view in 6 flashlight runs (got %d)" % items.size())
+	var sym := true
+	for i in range(0, items.size(), 6):
+		var head := items[i].split(":")
+		for k in range(6):
+			var p := items[i + k].split(":")
+			sym = sym and p[0] == head[0] and p[1] == head[1] and p[2] == World.TORCH_ORDER[k] and p[2] == World.TORCH_ORDER[5 - k]
+	check(sym, "each look x view is measured off, on, shadow, shadow, on, off back to back (symmetric, drift cancels)")
+	check(is_equal_approx(World.mean_gpu([3.0, 3.5]), 3.25) and World.mean_gpu([3.0, 0.0]) == 0.0, "GPU mean is 0 (unavailable) if any run had no GPU timing")
+	check(World.cost_line("flat", "hospital", 3.0, 0.0, 3.5).contains("GPU 시간 없음"), "summary says GPU timing is unavailable instead of showing 0")
+	var line := World.cost_line("flat", "hospital", 3.0, 3.25, 3.75)
+	check(line.contains("끔 3.00") and line.contains("켬 +0.25") and line.ends_with("그림자 +0.50 ms"), "cost line shows the flashlight and its shadow separately (%s)" % line)
+	h.free()
