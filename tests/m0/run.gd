@@ -61,6 +61,7 @@ func _init() -> void:
 	test_buildings()
 	test_flat_ground()
 	test_tent()
+	test_hemi()
 	print("M0 tests: %s" % ("OK" if failures == 0 else "%d FAILED" % failures))
 	quit(1 if failures > 0 else 0)
 
@@ -207,3 +208,16 @@ func test_tent() -> void:
 	check(World.cost_line("flat", "tent", 3.5, 0.0).contains("GPU 시간 없음"), "summary says GPU timing is unavailable instead of showing 0")
 	check(World.cost_line("flat", "tent", 3.5, 3.25).ends_with("+0.25 ms"), "cost line shows on - off")
 	tent.free()
+
+func test_hemi() -> void:
+	# Derivative normals flip when the image is drawn upside down (SubViewport): every FLAT shader turns them toward the camera.
+	for code in [Looks.SHADER_FLAT, Looks.SHADER_FLAT_WALL, Looks.SHADER_FLAT_GROUND]:
+		check(code.contains("NORMAL = dot(NORMAL, VERTEX) > 0.0 ? -NORMAL : NORMAL;"), "FLAT shader turns its derivative normal toward the camera")
+	var e := Looks.environment("flat")
+	check(e.sky != null and e.sky.sky_material is ProceduralSkyMaterial, "FLAT has a sky for hemisphere ambient")
+	check(e.reflected_light_source == Environment.REFLECTION_SOURCE_DISABLED, "the ambient sky adds no reflections")
+	for look in ["psx", "toon", "paint"]:
+		check(Looks.environment(look).sky == null, "%s keeps its flat-color ambient" % look)
+	var noon := World.ground_bounce(60.0, Looks.PALETTE["flat"]["street"])
+	var night := World.ground_bounce(-20.0, Looks.PALETTE["flat"]["street"])
+	check(noon.r > noon.b and noon.get_luminance() > night.get_luminance() * 2.0, "ground bounce is warm by day and dim at night")

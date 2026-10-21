@@ -79,7 +79,10 @@ uniform float emit = 0.0;
 varying vec4 vcol;
 void vertex() { vcol = COLOR; }
 void fragment() {
+	// Flat normal from screen derivatives, turned toward the camera: the derivative sign flips when the image is
+	// rendered upside down (M0 draws into a SubViewport), which lit FLAT faces from behind (Issue #40).
 	NORMAL = normalize(cross(dFdx(VERTEX), dFdy(VERTEX)));
+	NORMAL = dot(NORMAL, VERTEX) > 0.0 ? -NORMAL : NORMAL;
 	ALBEDO = base_color.rgb * vcol.rgb;
 	EMISSION = ALBEDO * emit;
 	ROUGHNESS = 1.0;
@@ -114,7 +117,10 @@ void vertex() {
 }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 void fragment() {
+	// Flat normal from screen derivatives, turned toward the camera: the derivative sign flips when the image is
+	// rendered upside down (M0 draws into a SubViewport), which lit FLAT faces from behind (Issue #40).
 	NORMAL = normalize(cross(dFdx(VERTEX), dFdy(VERTEX)));
+	NORMAL = dot(NORMAL, VERTEX) > 0.0 ? -NORMAL : NORMAL;
 	vec3 col = base_color.rgb * vcol.rgb;
 	vec3 emis = vec3(0.0);
 	// Interpolated varyings carry ~1e-7 noise; rounding keeps floor() and the hash below stable per box.
@@ -182,7 +188,10 @@ float vnoise(vec2 x) {
 	return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
 }
 void fragment() {
+	// Flat normal from screen derivatives, turned toward the camera: the derivative sign flips when the image is
+	// rendered upside down (M0 draws into a SubViewport), which lit FLAT faces from behind (Issue #40).
 	NORMAL = normalize(cross(dFdx(VERTEX), dFdy(VERTEX)));
+	NORMAL = dot(NORMAL, VERTEX) > 0.0 ? -NORMAL : NORMAL;
 	vec2 p = vloc.xz;
 	float fade = 1.0 - smoothstep(40.0, 120.0, length(VERTEX));
 	float big = vnoise(p * 0.07);
@@ -320,6 +329,14 @@ static func environment(look: String) -> Environment:
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	e.ambient_light_color = Color(0.85, 0.88, 0.95)
 	e.ambient_light_energy = AMBIENT[look]
+	if look == "flat":
+		# Hemisphere ambient (Issue #40): faces looking up get sky light, faces looking down get warm ground bounce.
+		# The world switches ambient_light_source between SKY and COLOR and sets the colors per hour.
+		var sky := Sky.new()
+		sky.sky_material = ProceduralSkyMaterial.new()
+		sky.radiance_size = Sky.RADIANCE_SIZE_32
+		e.sky = sky
+		e.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
 	e.fog_enabled = true
 	e.fog_light_color = SKY[look]
 	e.fog_density = FOG[look]
