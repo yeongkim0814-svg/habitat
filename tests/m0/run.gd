@@ -194,4 +194,16 @@ func test_tent() -> void:
 		check(m.get_shader_parameter("tex_on") == (1.0 if found else 0.0), "%s texture flag matches assets presence (%s)" % [kind, found])
 	check(Tent.material("metal").get_shader_parameter("tex_on") == 0.0, "untextured kinds stay flat")
 	check("tent" in World.VIEWS and World.VIEW_NAMES.has("tent"), "infirmary view is listed for the benchmark")
+	var items := World.bench_items()
+	check(items.size() == Looks.IDS.size() * World.VIEWS.size() * 2, "benchmark measures every look x view with the tent on and off (got %d)" % items.size())
+	var paired := true
+	var on_first := 0
+	for i in range(0, items.size(), 2):
+		var a := items[i].split(":")
+		var b := items[i + 1].split(":")
+		paired = paired and a[0] == b[0] and a[1] == b[1] and a[2] != b[2]
+		on_first += 1 if a[2] == "on" else 0
+	check(paired, "tent on/off runs are back to back for the same look and view")
+	check(on_first == items.size() / 4, "pair order alternates so drift cancels (on first in %d of %d pairs)" % [on_first, items.size() / 2])
+	check(World.cost_line("flat", "tent", 3.5, 3.25).ends_with("+0.25 ms"), "cost line shows on - off")
 	tent.free()
