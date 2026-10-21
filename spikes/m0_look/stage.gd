@@ -95,14 +95,14 @@ static func field(look: String, rng: RandomNumberGenerator, root: Node3D) -> voi
 	rocks(look, rng, root)
 	plants(look, rng, root)
 
-static func rocks(look: String, rng: RandomNumberGenerator, root: Node3D) -> void:
+static func rocks(look: String, rng: RandomNumberGenerator, root: Node3D, avoid_plot: bool = false) -> void:
 	var mesh := SphereMesh.new()
 	mesh.radial_segments = 7
 	mesh.rings = 4
 	var xforms: Array[Transform3D] = []
 	for i in range(110):
 		var p := Vector3(rng.randf_range(-HALF_X, HALF_X), 0.0, rng.randf_range(8.0, 92.0))
-		while PLOT.grow(2.0).has_point(Vector2(p.x, p.z)):
+		while avoid_plot and PLOT.grow(2.0).has_point(Vector2(p.x, p.z)):
 			p = Vector3(rng.randf_range(-HALF_X, HALF_X), 0.0, rng.randf_range(8.0, 92.0))
 		var s := rng.randf_range(0.8, 3.2)
 		var b := Basis(Vector3.UP, rng.randf() * TAU) * Basis.from_scale(Vector3(s * rng.randf_range(0.8, 1.6), s * rng.randf_range(0.5, 1.0), s * rng.randf_range(0.8, 1.4)))
@@ -159,7 +159,7 @@ static func overhead(look: String, rng: RandomNumberGenerator, root: Node3D, the
 static func meadow(look: String, rng: RandomNumberGenerator, root: Node3D) -> void:
 	# Fate Trigger-style reference: rolling green ground, conifers, round broadleaf trees, grass tufts, rocks.
 	root.add_child(ground(look, "meadow", 3.0, 95.0, 1.0))
-	rocks(look, rng, root)
+	rocks(look, rng, root, true)
 	trees(look, rng, root)
 	grass(look, rng, root)
 
