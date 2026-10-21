@@ -195,15 +195,15 @@ func test_tent() -> void:
 	check(Tent.material("metal").get_shader_parameter("tex_on") == 0.0, "untextured kinds stay flat")
 	check("tent" in World.VIEWS and World.VIEW_NAMES.has("tent"), "infirmary view is listed for the benchmark")
 	var items := World.bench_items()
-	check(items.size() == Looks.IDS.size() * World.VIEWS.size() * 2, "benchmark measures every look x view with the tent on and off (got %d)" % items.size())
-	var paired := true
-	var on_first := 0
-	for i in range(0, items.size(), 2):
-		var a := items[i].split(":")
-		var b := items[i + 1].split(":")
-		paired = paired and a[0] == b[0] and a[1] == b[1] and a[2] != b[2]
-		on_first += 1 if a[2] == "on" else 0
-	check(paired, "tent on/off runs are back to back for the same look and view")
-	check(on_first == items.size() / 4, "pair order alternates so drift cancels (on first in %d of %d pairs)" % [on_first, items.size() / 2])
+	check(items.size() == Looks.IDS.size() * World.VIEWS.size() * 4, "benchmark measures every look x view twice with the tent on and twice off (got %d)" % items.size())
+	var abba := true
+	for i in range(0, items.size(), 4):
+		var head := items[i].split(":")
+		for k in range(4):
+			var p := items[i + k].split(":")
+			abba = abba and p[0] == head[0] and p[1] == head[1] and p[2] == ["on", "off", "off", "on"][k]
+	check(abba, "each look x view is measured on, off, off, on back to back (drift cancels within the row)")
+	check(is_equal_approx(World.mean_gpu([3.0, 3.5]), 3.25) and World.mean_gpu([3.0, 0.0]) == 0.0, "GPU mean is 0 (unavailable) if any run had no GPU timing")
+	check(World.cost_line("flat", "tent", 3.5, 0.0).contains("GPU 시간 없음"), "summary says GPU timing is unavailable instead of showing 0")
 	check(World.cost_line("flat", "tent", 3.5, 3.25).ends_with("+0.25 ms"), "cost line shows on - off")
 	tent.free()

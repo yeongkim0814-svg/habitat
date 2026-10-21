@@ -35,7 +35,7 @@ var bench_samples: Array[float] = []
 var cpu_samples: Array[float] = []
 var gpu_samples: Array[float] = []
 var bench_lines: Array[String] = []
-var bench_gpu := {} # "look:view:on|off" -> mean GPU ms, for the tent on/off summary
+var bench_gpu := {} # "look:view:on|off" -> GPU ms of each run, for the tent on/off summary
 var tent_node: Node3D
 var bench_frame := 0
 var shot_frames := -1
@@ -251,21 +251,30 @@ func start_bench() -> void:
 	bench_queue = bench_items()
 	next_bench()
 
-# Each look x view is measured with the tent shown and hidden (hidden also leaves the shadow pass),
-# back to back so device temperature and clocks match; the pair order alternates so slow drift cancels (Issue #38).
+# Each look x view is measured on, off, off, on (ABBA) back to back; hidden also leaves the shadow pass.
+# Averaging both "on" and both "off" runs cancels drift that is linear in time (temperature, clocks) within every row (Issue #38).
 static func bench_items() -> Array[String]:
 	var items: Array[String] = []
-	var first := "on"
 	for l in Looks.IDS:
 		for v in VIEWS:
-			var second := "off" if first == "on" else "on"
-			items.append("%s:%s:%s" % [l, v, first])
-			items.append("%s:%s:%s" % [l, v, second])
-			first = second
+			for state in ["on", "off", "off", "on"]:
+				items.append("%s:%s:%s" % [l, v, state])
 	return items
 
 static func cost_line(l: String, v: String, on: float, off: float) -> String:
+	# The renderer reports 0 when GPU timing is unavailable: say so instead of showing a zero difference.
+	if on <= 0.0 or off <= 0.0:
+		return "%s %s: GPU 시간 없음(로그의 mean_ms 참고)" % [l, v]
 	return "%s %s: 텐트 켬 %.2f / 끔 %.2f / 차이 %+.2f ms" % [l, v, on, off, on - off]
+
+static func mean_gpu(runs: Array) -> float:
+	# A run without GPU timing (0) makes the whole condition unavailable.
+	var total := 0.0
+	for g in runs:
+		if g <= 0.0:
+			return 0.0
+		total += g
+	return total / runs.size()
 
 func next_bench() -> void:
 	var parts := bench_queue[0].split(":")
@@ -284,7 +293,7 @@ func finish_bench_item() -> void:
 	var p95: float = sorted[int(sorted.size() * 0.95)]
 	var gpu := mean_of(gpu_samples)
 	var tent_state := bench_queue[0].split(":")[2]
-	bench_gpu[bench_queue[0]] = gpu
+	bench_gpu.get_or_add(bench_queue[0], []).append(gpu)
 	var line := "M0 look=%s view=%s tent=%s mean_ms=%.3f p95_ms=%.3f render_cpu_mean_ms=%.3f render_gpu_mean_ms=%s samples=%d refresh_hz=%s vsync=%d" % [look, view, tent_state, mean_of(bench_samples), p95, mean_of(cpu_samples), "%.3f" % gpu if gpu > 0.0 else "?", bench_samples.size(), refresh_text(), DisplayServer.window_get_vsync_mode()]
 	print(line)
 	bench_queue.remove_at(0)
@@ -292,7 +301,7 @@ func finish_bench_item() -> void:
 		# Full lines go to the log; the screen shows one GPU line per look x view so all 24 fit.
 		for l in Looks.IDS:
 			for v in VIEWS:
-				bench_lines.append(cost_line(l, v, bench_gpu["%s:%s:on" % [l, v]], bench_gpu["%s:%s:off" % [l, v]]))
+				bench_lines.append(cost_line(l, v, mean_gpu(bench_gpu["%s:%s:on" % [l, v]]), mean_gpu(bench_gpu["%s:%s:off" % [l, v]])))
 		bench_lines.append("GPU ms, %s Hz, vsync=%d" % [refresh_text(), DisplayServer.window_get_vsync_mode()])
 		print("\n".join(bench_lines))
 		tent_node.visible = true
