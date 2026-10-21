@@ -57,6 +57,7 @@ func _init() -> void:
 	test_tuning()
 	test_flat_wall()
 	test_buildings()
+	test_flat_ground()
 	print("M0 tests: %s" % ("OK" if failures == 0 else "%d FAILED" % failures))
 	quit(1 if failures > 0 else 0)
 
@@ -151,3 +152,21 @@ func test_buildings() -> void:
 			found = true
 	check(found, "street walls carry per-box custom data")
 	root.free()
+
+func test_flat_ground() -> void:
+	Looks.live.clear()
+	for role in ["street", "soil", "meadow"]:
+		var g := Looks.material("flat", role, false, true)
+		check(g.shader.code.contains("uniform int kind") and g.get_shader_parameter("kind") == Looks.GROUND_KIND[role], "FLAT %s ground uses the ground shader with its kind" % role)
+		check(not Looks.material("paint", role, false, true).shader.code.contains("uniform int kind"), "other looks keep their ground shader (%s)" % role)
+	check(not Looks.material("flat", "street").shader.code.contains("uniform int kind"), "the ring (street role without ground flag) keeps SHADER_FLAT")
+	check(Looks.SHADER_FLAT_GROUND.contains("vec4(%.1f, %.1f, %.1f, %.1f)" % [Stage.PLOT.position.x, Stage.PLOT.position.y, Stage.PLOT.end.x, Stage.PLOT.end.y]), "shader farm plot matches Stage.PLOT")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 3
+	var clear := true
+	for i in range(2000):
+		var p := Stage.spot(rng)
+		if Stage.PLOT.has_point(Vector2(p.x, p.z)):
+			clear = false
+	check(clear, "trees and grass stay off the farm plot")
+	Looks.live.clear()

@@ -7,6 +7,7 @@ const Nature = preload("res://spikes/m0_look/nature.gd")
 const Buildings = preload("res://spikes/m0_look/buildings.gd")
 const HALF_X := 25.0
 const RING_HALF_LENGTH := 2500.0 # look-dev only: the real habitat is long; S2's 200 m ring would show sky past its ends.
+const PLOT := Rect2(-22.0, 12.0, 13.0, 30.0) # farm plot in the meadow (D66): drawn by the FLAT ground shader, kept clear of trees and grass.
 const FLOOR_LIFT := 0.45 # floor curves up 0.31 m at x = 25 (R = 1000); the stage ground sits above it.
 
 static func origin() -> Vector3:
@@ -59,7 +60,7 @@ static func ground(look: String, role: String, z0: float, z1: float, amp: float)
 	st.generate_normals()
 	var node := MeshInstance3D.new()
 	node.mesh = st.commit()
-	node.material_override = Looks.material(look, role)
+	node.material_override = Looks.material(look, role, false, true)
 	return node
 
 static func street(look: String, rng: RandomNumberGenerator, root: Node3D) -> void:
@@ -94,13 +95,15 @@ static func field(look: String, rng: RandomNumberGenerator, root: Node3D) -> voi
 	rocks(look, rng, root)
 	plants(look, rng, root)
 
-static func rocks(look: String, rng: RandomNumberGenerator, root: Node3D) -> void:
+static func rocks(look: String, rng: RandomNumberGenerator, root: Node3D, avoid_plot: bool = false) -> void:
 	var mesh := SphereMesh.new()
 	mesh.radial_segments = 7
 	mesh.rings = 4
 	var xforms: Array[Transform3D] = []
 	for i in range(110):
 		var p := Vector3(rng.randf_range(-HALF_X, HALF_X), 0.0, rng.randf_range(8.0, 92.0))
+		while avoid_plot and PLOT.grow(2.0).has_point(Vector2(p.x, p.z)):
+			p = Vector3(rng.randf_range(-HALF_X, HALF_X), 0.0, rng.randf_range(8.0, 92.0))
 		var s := rng.randf_range(0.8, 3.2)
 		var b := Basis(Vector3.UP, rng.randf() * TAU) * Basis.from_scale(Vector3(s * rng.randf_range(0.8, 1.6), s * rng.randf_range(0.5, 1.0), s * rng.randf_range(0.8, 1.4)))
 		xforms.append(Transform3D(b, p + Vector3(0, s * 0.25, 0)))
@@ -156,13 +159,16 @@ static func overhead(look: String, rng: RandomNumberGenerator, root: Node3D, the
 static func meadow(look: String, rng: RandomNumberGenerator, root: Node3D) -> void:
 	# Fate Trigger-style reference: rolling green ground, conifers, round broadleaf trees, grass tufts, rocks.
 	root.add_child(ground(look, "meadow", 3.0, 95.0, 1.0))
-	rocks(look, rng, root)
+	rocks(look, rng, root, true)
 	trees(look, rng, root)
 	grass(look, rng, root)
 
 static func spot(rng: RandomNumberGenerator) -> Vector3:
 	var x := rng.randf_range(-HALF_X, HALF_X)
 	var z := rng.randf_range(6.0, 94.0)
+	while PLOT.grow(1.0).has_point(Vector2(x, z)):
+		x = rng.randf_range(-HALF_X, HALF_X)
+		z = rng.randf_range(6.0, 94.0)
 	return Vector3(x, ground_y(x, z, 1.0), z)
 
 static func trees(look: String, rng: RandomNumberGenerator, root: Node3D) -> void:
