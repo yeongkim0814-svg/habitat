@@ -7,11 +7,16 @@ const Kit = preload("res://spikes/m0_look/ui_kit.gd")
 const TuningPanel = preload("res://spikes/m0_look/tuning_panel.gd")
 const Cylinder = preload("res://spikes/s2_cylinder/cylinder.gd")
 const Tent = preload("res://spikes/m0_look/tent.gd")
-const VIEWS: Array[String] = ["street", "boundary", "field", "meadow", "overhead", "tent"]
-const VIEW_NAMES := {"street": "거리", "boundary": "경계", "field": "들판", "meadow": "초원", "overhead": "머리 위", "tent": "의무실"}
+const Hospital = preload("res://spikes/m0_look/hospital.gd")
+const VIEWS: Array[String] = ["street", "boundary", "field", "meadow", "overhead", "tent", "hospital"]
+const VIEW_NAMES := {"street": "거리", "boundary": "경계", "field": "들판", "meadow": "초원", "overhead": "머리 위", "tent": "의무실", "hospital": "병원"}
 const ZONE_NAMES := {"safe": "안전구역", "danger": "오염구역"}
+const TORCH_NAMES := {"off": "손전등 끔", "lamp": "손전등", "shadow": "손전등+그림자"}
+const TORCH_ORDER: Array[String] = ["off", "lamp", "shadow", "shadow", "lamp", "off"]
 # Infirmary tent between the west lamp line (x = -6) and the buildings (x = -16), door facing the street.
 const TENT_XFORM := Transform3D(Basis(Vector3.UP, PI / 2.0), Vector3(-11.0, 0.2, -12.0))
+# Hospital interior (D60, D61) beyond the street end (street ground ends at z = -95), corridor running toward the street.
+const HOSPITAL_XFORM := Transform3D(Basis(), Vector3(0.0, 0.2, -140.0))
 const BENCH_FRAMES := 90
 const BENCH_SKIP := 12
 
@@ -35,8 +40,11 @@ var bench_samples: Array[float] = []
 var cpu_samples: Array[float] = []
 var gpu_samples: Array[float] = []
 var bench_lines: Array[String] = []
-var bench_gpu := {} # "look:view:on|off" -> GPU ms of each run, for the tent on/off summary
-var hemi := true # FLAT hemisphere ambient; the benchmark measures it on and off (Issue #40)
+var bench_gpu := {} # "look:view:torch" -> GPU ms of each run, for the flashlight summary
+var hemi := true # FLAT hemisphere ambient (Issue #40)
+var torch := "lamp" # player flashlight: off, lamp, or lamp with shadows (Issue #42)
+var flashlight := SpotLight3D.new()
+var hospital_node: Node3D
 var bench_frame := 0
 var shot_frames := -1
 var shot_path := ""
@@ -61,6 +69,16 @@ func _ready() -> void:
 	camera.fov = 75.0
 	scene.add_child(camera)
 	camera.current = true
+	# Held at the right hand, not at the eye: a light at the eye hides every shadow it casts behind the objects it lights.
+	camera.add_child(flashlight)
+	flashlight.position = Vector3(0.25, -0.22, 0.0)
+	flashlight.rotation = Vector3(0.027, 0.031, 0.0) # aimed to cross the view centre about 8 m ahead
+	flashlight.spot_range = 22.0
+	flashlight.spot_angle = 24.0
+	flashlight.spot_angle_attenuation = 0.9
+	flashlight.light_energy = 3.0
+	flashlight.light_color = Color(1.0, 0.95, 0.85)
+	flashlight.shadow_bias = 0.03
 	build_ui()
 	if not read_args():
 		return
@@ -81,6 +99,10 @@ func read_args() -> bool:
 			if not arg.substr(7) in ["on", "off"]:
 				return reject("--hemi expects on or off, got '%s'" % arg.substr(7))
 			hemi = arg.substr(7) == "on"
+		elif arg.begins_with("--torch="):
+			if not arg.substr(8) in TORCH_NAMES:
+				return reject("--torch expects one of %s, got '%s'" % [", ".join(TORCH_NAMES.keys()), arg.substr(8)])
+			torch = arg.substr(8)
 		elif arg.begins_with("--zone="):
 			if not arg.substr(7) in ZONE_NAMES:
 				return reject("--zone expects one of %s, got '%s'" % [", ".join(ZONE_NAMES.keys()), arg.substr(7)])
@@ -123,6 +145,9 @@ func rebuild() -> void:
 	var tent := Tent.build()
 	tent.transform = TENT_XFORM
 	floor_root.add_child(tent)
+	hospital_node = Hospital.build()
+	hospital_node.transform = HOSPITAL_XFORM
+	floor_root.add_child(hospital_node)
 	if uses_meadow(view):
 		Stage.meadow(look, rng, floor_root)
 	else:
@@ -140,12 +165,21 @@ func rebuild() -> void:
 	container.stretch_shrink = Looks.SHRINK[look]
 	apply_time()
 	place_camera()
+	apply_torch()
+
+func apply_torch() -> void:
+	flashlight.visible = torch != "off"
+	flashlight.shadow_enabled = torch == "shadow"
 
 func apply_time() -> void:
 	var theta := Sun.SAFE_FLOOR_ANGLE if zone == "safe" else Sun.DANGER_FLOOR_ANGLE
 	var elev := Sun.elevation_deg(hour, theta)
 	sun.look_at_from_position(Sun.to_sun(hour) * 200.0, Vector3.ZERO)
 	sun.light_energy = Sun.light_energy(elev) * panel.value("sun")
+	if view == "hospital":
+		# Eyes adapt to the dark interior, so sunlight through the roof hole looks several times brighter than outdoors.
+		# Scaling the sun here equals raising the exposure with the indoor lights tuned for it (outside is not visible).
+		sun.light_energy *= Hospital.INDOOR_EXPOSURE
 	sun.light_color = Sun.light_color(elev)
 	sun.visible = sun.light_energy > 0.0
 	Looks.set_night(1.0 - smoothstep(-4.0, 6.0, elev))
@@ -153,6 +187,8 @@ func apply_time() -> void:
 	env.background_color = Sun.sky_color(elev)
 	env.fog_light_color = env.background_color
 	env.ambient_light_color = Sun.ambient_color(elev)
+	# One environment for the whole scene: inside the hospital, walls and roof block most of the sky light (D90 open point).
+	var indoor := Hospital.INDOOR_AMBIENT if view == "hospital" else 1.0
 	if env.sky != null:
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY if hemi else Environment.AMBIENT_SOURCE_COLOR
 		# Up is the habitat axis: the danger zone stage is upside down, so turn the sky with it.
@@ -163,9 +199,15 @@ func apply_time() -> void:
 		m.sky_horizon_color = Sun.ambient_color(elev).lerp(ground, 0.35)
 		m.ground_horizon_color = ground.lerp(Sun.ambient_color(elev), 0.35)
 		m.ground_bottom_color = ground
-	env.ambient_light_energy = Looks.AMBIENT[look] * lerpf(0.5, 0.8, smoothstep(-6.0, 10.0, elev)) * panel.value("ambient")
+		# ambient_light_energy does not scale sky ambient (only the color part), so the slider and the indoor factor
+		# scale the sky itself. At slider 1 outdoors this is the look approved in #41 (sky energy 1).
+		m.energy_multiplier = panel.value("ambient") * indoor
+	env.ambient_light_energy = Looks.AMBIENT[look] * lerpf(0.5, 0.8, smoothstep(-6.0, 10.0, elev)) * panel.value("ambient") * indoor
 	env.fog_density = panel.value("fog")
-	label.text = "%s / %s / %s / %02d시 (태양 고도 %d°)" % [Looks.NAMES[look], VIEW_NAMES[view], ZONE_NAMES[zone], int(hour), int(elev)]
+	if hospital_node != null and hospital_node.is_inside_tree():
+		var to_sun := hospital_node.global_transform.basis.inverse() * Sun.to_sun(hour)
+		Hospital.aim(hospital_node, to_sun, sun.light_energy if sun.visible else 0.0, sun.light_color)
+	label.text = "%s / %s / %s / %02d시 (태양 고도 %d°) / %s" % [Looks.NAMES[look], VIEW_NAMES[view], ZONE_NAMES[zone], int(hour), int(elev), TORCH_NAMES[torch]]
 	if view == "tent" and not Tent.textures_found():
 		label.text += " / 텍스처 없음(assets 폴더 확인)"
 
@@ -198,6 +240,10 @@ func place_camera() -> void:
 		"tent":
 			eye = Vector3(-4.0, 1.7, -6.5)
 			target = Vector3(-11.0, 1.3, -12.0)
+		"hospital":
+			# From the chained doors down the corridor: exam room door, roof hole, exit sign at the stairwell.
+			eye = HOSPITAL_XFORM * Vector3(-0.5, 1.7, 1.2)
+			target = HOSPITAL_XFORM * Vector3(0.3, 1.3, 14.0)
 		_:
 			eye.y += Stage.ground_y(0.0, 4.0, amp)
 	camera.position = xf * eye
@@ -224,6 +270,7 @@ func build_ui() -> void:
 	Kit.button(bottom, "-3시", step_hour.bind(-3.0))
 	Kit.button(bottom, "+3시", step_hour.bind(3.0))
 	Kit.button(bottom, "구역", toggle_zone)
+	Kit.button(bottom, "손전등", cycle_torch)
 	Kit.button(bottom, "조절", toggle_panel)
 	Kit.button(bottom, "측정", start_bench)
 	ui.add_child(panel)
@@ -262,6 +309,13 @@ func toggle_zone() -> void:
 		zone = "danger" if zone == "safe" else "safe"
 		rebuild()
 
+func cycle_torch() -> void:
+	if bench_queue.is_empty():
+		var order: Array[String] = ["off", "lamp", "shadow"]
+		torch = order[(order.find(torch) + 1) % order.size()]
+		apply_torch()
+		apply_time()
+
 func start_bench() -> void:
 	if not bench_queue.is_empty():
 		return
@@ -272,22 +326,22 @@ func start_bench() -> void:
 	bench_queue = bench_items()
 	next_bench()
 
-# Each look x view is measured with the FLAT hemisphere ambient on, off, off, on (ABBA) back to back (Issue #40).
-# Other looks have no hemisphere ambient, so their rows show the measurement noise.
-# Averaging both "on" and both "off" runs cancels drift that is linear in time (temperature, clocks) within every row (Issue #38).
+# Each look x view is measured with the flashlight off, on, on with shadows, then back (ABCCBA) (Issue #42).
+# The order is symmetric in time, so drift that is linear in time (temperature, clocks) cancels in every pairwise
+# difference of the averaged states (Issue #38).
 static func bench_items() -> Array[String]:
 	var items: Array[String] = []
 	for l in Looks.IDS:
 		for v in VIEWS:
-			for state in ["on", "off", "off", "on"]:
+			for state in TORCH_ORDER:
 				items.append("%s:%s:%s" % [l, v, state])
 	return items
 
-static func cost_line(l: String, v: String, on: float, off: float) -> String:
+static func cost_line(l: String, v: String, off: float, lamp: float, shadow: float) -> String:
 	# The renderer reports 0 when GPU timing is unavailable: say so instead of showing a zero difference.
-	if on <= 0.0 or off <= 0.0:
+	if off <= 0.0 or lamp <= 0.0 or shadow <= 0.0:
 		return "%s %s: GPU 시간 없음(로그의 mean_ms 참고)" % [l, v]
-	return "%s %s: 하늘광 켬 %.2f / 끔 %.2f / 차이 %+.2f ms" % [l, v, on, off, on - off]
+	return "%s %s: 손전등 끔 %.2f / 켬 %+.2f / 그림자 %+.2f ms" % [l, v, off, lamp - off, shadow - lamp]
 
 static func mean_gpu(runs: Array) -> float:
 	# A run without GPU timing (0) makes the whole condition unavailable.
@@ -302,7 +356,7 @@ func next_bench() -> void:
 	var parts := bench_queue[0].split(":")
 	look = parts[0]
 	view = parts[1]
-	hemi = parts[2] == "on"
+	torch = parts[2]
 	rebuild()
 	bench_samples.clear()
 	cpu_samples.clear()
@@ -314,19 +368,21 @@ func finish_bench_item() -> void:
 	sorted.sort()
 	var p95: float = sorted[int(sorted.size() * 0.95)]
 	var gpu := mean_of(gpu_samples)
-	var hemi_state := bench_queue[0].split(":")[2]
+	var torch_state := bench_queue[0].split(":")[2]
 	bench_gpu.get_or_add(bench_queue[0], []).append(gpu)
-	var line := "M0 look=%s view=%s hemi=%s mean_ms=%.3f p95_ms=%.3f render_cpu_mean_ms=%.3f render_gpu_mean_ms=%s samples=%d refresh_hz=%s vsync=%d" % [look, view, hemi_state, mean_of(bench_samples), p95, mean_of(cpu_samples), "%.3f" % gpu if gpu > 0.0 else "?", bench_samples.size(), refresh_text(), DisplayServer.window_get_vsync_mode()]
+	var line := "M0 look=%s view=%s torch=%s mean_ms=%.3f p95_ms=%.3f render_cpu_mean_ms=%.3f render_gpu_mean_ms=%s samples=%d refresh_hz=%s vsync=%d" % [look, view, torch_state, mean_of(bench_samples), p95, mean_of(cpu_samples), "%.3f" % gpu if gpu > 0.0 else "?", bench_samples.size(), refresh_text(), DisplayServer.window_get_vsync_mode()]
 	print(line)
 	bench_queue.remove_at(0)
 	if bench_queue.is_empty():
-		# Full lines go to the log; the screen shows one GPU line per look x view so all 24 fit.
+		# Full lines go to the log; the screen shows one GPU line per look x view so all 28 fit.
 		for l in Looks.IDS:
 			for v in VIEWS:
-				bench_lines.append(cost_line(l, v, mean_gpu(bench_gpu["%s:%s:on" % [l, v]]), mean_gpu(bench_gpu["%s:%s:off" % [l, v]])))
+				var g := func(state: String) -> float: return mean_gpu(bench_gpu["%s:%s:%s" % [l, v, state]])
+				bench_lines.append(cost_line(l, v, g.call("off"), g.call("lamp"), g.call("shadow")))
 		bench_lines.append("GPU ms, %s Hz, vsync=%d" % [refresh_text(), DisplayServer.window_get_vsync_mode()])
 		print("\n".join(bench_lines))
-		hemi = true
+		torch = "lamp"
+		apply_torch()
 		apply_time()
 		label.text = "\n".join(bench_lines)
 		label.add_theme_font_size_override("font_size", 20)
@@ -334,6 +390,8 @@ func finish_bench_item() -> void:
 		next_bench()
 
 func _process(delta: float) -> void:
+	if view == "hospital" and hospital_node != null:
+		Hospital.flicker(hospital_node, Time.get_ticks_msec() / 1000.0)
 	if not bench_queue.is_empty():
 		bench_frame += 1
 		if bench_frame > BENCH_SKIP:
