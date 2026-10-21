@@ -36,7 +36,7 @@ var cpu_samples: Array[float] = []
 var gpu_samples: Array[float] = []
 var bench_lines: Array[String] = []
 var bench_gpu := {} # "look:view:on|off" -> GPU ms of each run, for the tent on/off summary
-var tent_node: Node3D
+var hemi := true # FLAT hemisphere ambient; the benchmark measures it on and off (Issue #40)
 var bench_frame := 0
 var shot_frames := -1
 var shot_path := ""
@@ -51,6 +51,7 @@ func _ready() -> void:
 	scene.add_child(env_node)
 	scene.add_child(content)
 	sun.shadow_enabled = true
+	sun.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY # no sun disk in the ambient sky
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	sun.directional_shadow_max_distance = 160.0
 	sun.shadow_bias = 0.05
@@ -76,6 +77,10 @@ func read_args() -> bool:
 			if not text.is_valid_float() or float(text) < 0.0 or float(text) > 24.0:
 				return reject("--hour expects a number in 0-24, got '%s'" % text)
 			hour = float(text)
+		elif arg.begins_with("--hemi="):
+			if not arg.substr(7) in ["on", "off"]:
+				return reject("--hemi expects on or off, got '%s'" % arg.substr(7))
+			hemi = arg.substr(7) == "on"
 		elif arg.begins_with("--zone="):
 			if not arg.substr(7) in ZONE_NAMES:
 				return reject("--zone expects one of %s, got '%s'" % [", ".join(ZONE_NAMES.keys()), arg.substr(7)])
@@ -115,9 +120,9 @@ func rebuild() -> void:
 	floor_root.transform = floor_xform()
 	content.add_child(floor_root)
 	Stage.street(look, rng, floor_root)
-	tent_node = Tent.build()
-	tent_node.transform = TENT_XFORM
-	floor_root.add_child(tent_node)
+	var tent := Tent.build()
+	tent.transform = TENT_XFORM
+	floor_root.add_child(tent)
 	if uses_meadow(view):
 		Stage.meadow(look, rng, floor_root)
 	else:
@@ -148,11 +153,27 @@ func apply_time() -> void:
 	env.background_color = Sun.sky_color(elev)
 	env.fog_light_color = env.background_color
 	env.ambient_light_color = Sun.ambient_color(elev)
+	if env.sky != null:
+		env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY if hemi else Environment.AMBIENT_SOURCE_COLOR
+		# Up is the habitat axis: the danger zone stage is upside down, so turn the sky with it.
+		env.sky_rotation = Vector3(0, 0, PI) if zone == "danger" else Vector3.ZERO
+		var m := env.sky.sky_material as ProceduralSkyMaterial
+		var ground := ground_bounce(elev, Looks.PALETTE["flat"]["street"])
+		m.sky_top_color = Sun.ambient_color(elev)
+		m.sky_horizon_color = Sun.ambient_color(elev).lerp(ground, 0.35)
+		m.ground_horizon_color = ground.lerp(Sun.ambient_color(elev), 0.35)
+		m.ground_bottom_color = ground
 	env.ambient_light_energy = Looks.AMBIENT[look] * lerpf(0.5, 0.8, smoothstep(-6.0, 10.0, elev)) * panel.value("ambient")
 	env.fog_density = panel.value("fog")
 	label.text = "%s / %s / %s / %02d시 (태양 고도 %d°)" % [Looks.NAMES[look], VIEW_NAMES[view], ZONE_NAMES[zone], int(hour), int(elev)]
 	if view == "tent" and not Tent.textures_found():
 		label.text += " / 텍스처 없음(assets 폴더 확인)"
+
+# Light the ground sends back up: its color times direct sun on the ground (grows with elevation) plus a little sky.
+static func ground_bounce(elev: float, albedo: Color) -> Color:
+	var direct := Sun.light_color(elev) * (Sun.light_energy(elev) * maxf(sin(deg_to_rad(elev)), 0.0) * 1.6)
+	var c := albedo * (direct + Sun.ambient_color(elev) * 0.35)
+	return Color(c.r, c.g, c.b, 1.0)
 
 func uses_meadow(v: String) -> bool:
 	return v == "meadow" or v == "boundary"
@@ -251,7 +272,8 @@ func start_bench() -> void:
 	bench_queue = bench_items()
 	next_bench()
 
-# Each look x view is measured on, off, off, on (ABBA) back to back; hidden also leaves the shadow pass.
+# Each look x view is measured with the FLAT hemisphere ambient on, off, off, on (ABBA) back to back (Issue #40).
+# Other looks have no hemisphere ambient, so their rows show the measurement noise.
 # Averaging both "on" and both "off" runs cancels drift that is linear in time (temperature, clocks) within every row (Issue #38).
 static func bench_items() -> Array[String]:
 	var items: Array[String] = []
@@ -265,7 +287,7 @@ static func cost_line(l: String, v: String, on: float, off: float) -> String:
 	# The renderer reports 0 when GPU timing is unavailable: say so instead of showing a zero difference.
 	if on <= 0.0 or off <= 0.0:
 		return "%s %s: GPU 시간 없음(로그의 mean_ms 참고)" % [l, v]
-	return "%s %s: 텐트 켬 %.2f / 끔 %.2f / 차이 %+.2f ms" % [l, v, on, off, on - off]
+	return "%s %s: 하늘광 켬 %.2f / 끔 %.2f / 차이 %+.2f ms" % [l, v, on, off, on - off]
 
 static func mean_gpu(runs: Array) -> float:
 	# A run without GPU timing (0) makes the whole condition unavailable.
@@ -280,8 +302,8 @@ func next_bench() -> void:
 	var parts := bench_queue[0].split(":")
 	look = parts[0]
 	view = parts[1]
+	hemi = parts[2] == "on"
 	rebuild()
-	tent_node.visible = parts[2] == "on"
 	bench_samples.clear()
 	cpu_samples.clear()
 	gpu_samples.clear()
@@ -292,9 +314,9 @@ func finish_bench_item() -> void:
 	sorted.sort()
 	var p95: float = sorted[int(sorted.size() * 0.95)]
 	var gpu := mean_of(gpu_samples)
-	var tent_state := bench_queue[0].split(":")[2]
+	var hemi_state := bench_queue[0].split(":")[2]
 	bench_gpu.get_or_add(bench_queue[0], []).append(gpu)
-	var line := "M0 look=%s view=%s tent=%s mean_ms=%.3f p95_ms=%.3f render_cpu_mean_ms=%.3f render_gpu_mean_ms=%s samples=%d refresh_hz=%s vsync=%d" % [look, view, tent_state, mean_of(bench_samples), p95, mean_of(cpu_samples), "%.3f" % gpu if gpu > 0.0 else "?", bench_samples.size(), refresh_text(), DisplayServer.window_get_vsync_mode()]
+	var line := "M0 look=%s view=%s hemi=%s mean_ms=%.3f p95_ms=%.3f render_cpu_mean_ms=%.3f render_gpu_mean_ms=%s samples=%d refresh_hz=%s vsync=%d" % [look, view, hemi_state, mean_of(bench_samples), p95, mean_of(cpu_samples), "%.3f" % gpu if gpu > 0.0 else "?", bench_samples.size(), refresh_text(), DisplayServer.window_get_vsync_mode()]
 	print(line)
 	bench_queue.remove_at(0)
 	if bench_queue.is_empty():
@@ -304,7 +326,8 @@ func finish_bench_item() -> void:
 				bench_lines.append(cost_line(l, v, mean_gpu(bench_gpu["%s:%s:on" % [l, v]]), mean_gpu(bench_gpu["%s:%s:off" % [l, v]])))
 		bench_lines.append("GPU ms, %s Hz, vsync=%d" % [refresh_text(), DisplayServer.window_get_vsync_mode()])
 		print("\n".join(bench_lines))
-		tent_node.visible = true
+		hemi = true
+		apply_time()
 		label.text = "\n".join(bench_lines)
 		label.add_theme_font_size_override("font_size", 20)
 	else:
