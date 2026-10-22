@@ -257,6 +257,17 @@ func test_hospital() -> void:
 		check(clip.position.y == 0.0 and is_equal_approx(clip.end.y, Hospital.ROOF_TOP) and is_equal_approx(clip.size.x, Hospital.CORRIDOR_W) and clip.position.z >= 0.0, "beam is cut by the corridor box (%s)" % clip)
 	Hospital.aim(h, to_sun, 0.8, Color.WHITE)
 	check((h.get_node("shaft") as Node3D).visible and (h.get_node("bounce") as Node3D).visible, "shaft and bounce are on in daylight")
+	# The shaft box must not share a plane with the floor or walls (z-fighting bands, Issue #52).
+	var clip: AABB = Hospital.beam(to_sun).clip
+	var shaft_box := (h.get_node("shaft") as MeshInstance3D).mesh as BoxMesh
+	check(shaft_box.size.x < clip.size.x - 0.02 and shaft_box.size.y < clip.size.y - 0.02, "shaft box sits inside the floor and walls (%s vs %s)" % [shaft_box.size, clip.size])
+	# Analytic sun (Issue #52): under the hole the floor sees the sun, far down the corridor it does not; the edge is soft.
+	var under := Hospital.landing(to_sun)
+	check(Hospital.sun_gap(under, to_sun).x > 0.3, "the floor where the centre ray lands is sunlit (%s)" % Hospital.sun_gap(under, to_sun))
+	check(Hospital.sun_gap(Vector3(0, 0, 2.0), to_sun).x < 0.0, "the floor near the corridor start is in shade")
+	check(Hospital.sun_gap(Vector3(4.0, 0, 10.0), to_sun).x < -50.0, "the exam room is left to the shadow map")
+	check(Hospital.sun_gap(under, to_sun).y >= 0.05, "the sun's edge has a penumbra")
+	check(not Hospital.SHADER_HOSPITAL.format(Hospital.shader_constants()).contains("{"+"HOLE"), "all building sizes are written into the shader")
 	Hospital.aim(h, Vector3(0.0, -0.3, 0.95), 0.8, Color.WHITE)
 	check(not (h.get_node("shaft") as Node3D).visible and not (h.get_node("bounce") as Node3D).visible, "shaft and bounce are off with the sun below the roof")
 	check("hospital" in World.VIEWS and World.VIEW_NAMES.has("hospital"), "hospital view is listed for the benchmark")
