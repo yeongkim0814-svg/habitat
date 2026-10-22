@@ -273,4 +273,10 @@ func test_hospital() -> void:
 	check(World.cost_line("flat", "hospital", 3.0, 0.0, 3.5).contains("GPU 시간 없음"), "summary says GPU timing is unavailable instead of showing 0")
 	var line := World.cost_line("flat", "hospital", 3.0, 3.25, 3.75)
 	check(line.contains("끔 3.00") and line.contains("켬 +0.25") and line.ends_with("그림자 +0.50 ms"), "cost line shows the flashlight and its shadow separately (%s)" % line)
+	# Sun shadow map (Issue #46): the hospital needs a short shadow distance and a softer filter; outdoors keeps 160 m.
+	var indoor := World.shadow_settings("hospital")
+	var outdoor := World.shadow_settings("street")
+	check(outdoor.distance == 160.0 and World.shadow_settings("tent") == outdoor, "outdoor views keep the 160 m sun shadow")
+	check(indoor.distance >= Hospital.LENGTH and indoor.distance < outdoor.distance / 4.0, "hospital shadow distance covers the corridor and is much shorter (%s)" % indoor.distance)
+	check(indoor.soft > outdoor.soft and indoor.bias < outdoor.bias and indoor.normal_bias < outdoor.normal_bias, "hospital uses a softer filter and smaller biases")
 	h.free()
