@@ -64,6 +64,7 @@ func _init() -> void:
 	test_tent()
 	test_hemi()
 	test_hospital()
+	test_scale()
 	print("M0 tests: %s" % ("OK" if failures == 0 else "%d FAILED" % failures))
 	quit(1 if failures > 0 else 0)
 
@@ -260,19 +261,25 @@ func test_hospital() -> void:
 	check(not (h.get_node("shaft") as Node3D).visible and not (h.get_node("bounce") as Node3D).visible, "shaft and bounce are off with the sun below the roof")
 	check("hospital" in World.VIEWS and World.VIEW_NAMES.has("hospital"), "hospital view is listed for the benchmark")
 	# Benchmark: flashlight off, on, shadow, shadow, on, off per look x view.
+	# Benchmark (Issue #48): FLAT only, each view at 100, 75, 50, 50, 75, 100 % render scale.
 	var items := World.bench_items()
-	check(items.size() == Looks.IDS.size() * World.VIEWS.size() * 6, "benchmark measures every look x view in 6 flashlight runs (got %d)" % items.size())
+	check(items.size() == World.VIEWS.size() * 6, "benchmark measures FLAT in 6 runs per view (got %d)" % items.size())
 	var sym := true
 	for i in range(0, items.size(), 6):
 		var head := items[i].split(":")
 		for k in range(6):
 			var p := items[i + k].split(":")
-			sym = sym and p[0] == head[0] and p[1] == head[1] and p[2] == World.TORCH_ORDER[k] and p[2] == World.TORCH_ORDER[5 - k]
-	check(sym, "each look x view is measured off, on, shadow, shadow, on, off back to back (symmetric, drift cancels)")
+			sym = sym and p[0] == "flat" and p[1] == head[1] and int(p[2]) == World.SCALE_ORDER[k] and int(p[2]) == World.SCALE_ORDER[5 - k]
+	check(sym, "each view is measured at 100, 75, 50, 50, 75, 100 % back to back (symmetric, drift cancels)")
+	for pct in World.SCALE_ORDER:
+		check(pct / 100.0 in World.SCALES, "bench scale %d is a selectable scale" % pct)
 	check(is_equal_approx(World.mean_gpu([3.0, 3.5]), 3.25) and World.mean_gpu([3.0, 0.0]) == 0.0, "GPU mean is 0 (unavailable) if any run had no GPU timing")
-	check(World.cost_line("flat", "hospital", 3.0, 0.0, 3.5).contains("GPU 시간 없음"), "summary says GPU timing is unavailable instead of showing 0")
-	var line := World.cost_line("flat", "hospital", 3.0, 3.25, 3.75)
-	check(line.contains("끔 3.00") and line.contains("켬 +0.25") and line.ends_with("그림자 +0.50 ms"), "cost line shows the flashlight and its shadow separately (%s)" % line)
+	check(World.cost_line("flat", "hospital", 6.0, 0.0, 3.0).contains("GPU 시간 없음"), "summary says GPU timing is unavailable instead of showing 0")
+	# 1 ms fixed + 4 ms per full screen: 100 % = 5, 50 % = 1 + 4 x 0.25 = 2, 75 % = 1 + 4 x 0.5625 = 3.25.
+	var c := World.split_cost(5.0, 2.0)
+	check(c.is_equal_approx(Vector2(1.0, 4.0)), "two scales split GPU time into fixed and per-pixel parts (%s)" % c)
+	var line := World.cost_line("flat", "hospital", 5.0, 3.25, 2.0)
+	check(line.contains("고정 1.00 픽셀 4.00") and line.contains("75% 예측 3.25"), "cost line shows the split and the 75 %% check (%s)" % line)
 	# Sun shadow map (Issue #46): the hospital needs a short shadow distance and a softer filter; outdoors keeps 160 m.
 	var indoor := World.shadow_settings("hospital")
 	var outdoor := World.shadow_settings("street")
@@ -280,3 +287,10 @@ func test_hospital() -> void:
 	check(indoor.distance >= Hospital.EXTENT and indoor.distance < outdoor.distance / 4.0, "hospital shadow distance reaches the stairwell end and is much shorter than outdoors (%s)" % indoor.distance)
 	check(indoor.soft > outdoor.soft and indoor.bias < outdoor.bias and indoor.normal_bias < outdoor.normal_bias, "hospital uses a softer filter and smaller biases")
 	h.free()
+
+func test_scale() -> void:
+	# Issue #48: render resolution per axis; PSX keeps its own 1/4.
+	check(World.SCALES == [1.0, 0.75, 0.5], "render scales are 100, 75, 50 %")
+	for s in World.SCALES:
+		check(World.effective_scale("flat", s) == s and World.effective_scale("paint", s) == s, "FLAT and PAINT follow the chosen scale (%s)" % s)
+		check(is_equal_approx(World.effective_scale("psx", s), 1.0 / Looks.SHRINK["psx"]), "PSX keeps its own resolution (%s)" % s)
