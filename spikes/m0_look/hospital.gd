@@ -21,6 +21,9 @@ const ROOM := Rect2(1.75, 7.0, 5.75, 7.0) # exam room interior (x, z)
 const ROOM_DOOR := Rect2(9.8, 0.0, 1.4, 2.3) # opening in the corridor east wall (z, y)
 const WINDOW := Rect2(9.5, 1.0, 3.0, 1.3) # boarded window in the room's outer wall (z, y)
 const STAIR_DOOR := Rect2(-0.8, 0.0, 1.6, 2.4) # opening in the corridor end wall (x, y)
+# The shaft box sits this far inside the floor and walls. On the surfaces themselves its faces z-fight with them, which drew
+# dashed bands across the sunlit floor and walls that changed with the screen size (Issue #52).
+const SHAFT_INSET := 0.03
 const INDOOR_AMBIENT := 0.15 # sky light reaching the inside: walls and roof block most of it (D90 open point)
 const INDOOR_EXPOSURE := 3.0 # eye adaptation indoors: the sun through the hole is this many times brighter than outdoors
 # tint, mode (0 plain, 1 floor tiles, 2 painted wall, 3 ceiling tiles, 4 glow), roughness, metallic
@@ -49,7 +52,10 @@ const SHADER_HOSPITAL := """
 shader_type spatial;
 // Hospital surfaces in metres on the building frame: plain, vinyl floor tiles with a way-finding stripe, painted wall with a
 // wainscot and peeling paint, suspended ceiling tiles with gaps and water stains, glow. Vertex colour carries baked AO
-// (or the glow colour). Standard lighting, so the sun, emergency lights and the flashlight all work.
+// (or the glow colour). The sun inside the corridor is masked analytically (Issue #52): a surface point is sunlit when its ray
+// toward the sun passes the ceiling hole and the roof hole, with a soft edge as wide as the sun's own penumbra. The shadow map
+// then adds only the shadows of objects inside the sunlit patch, and is faded out near the patch edge, where its stair-step
+// stripes would show. Outside the corridor (exam room, stairwell) the sun uses the shadow map as before.
 uniform vec3 tint : source_color = vec3(1.0);
 uniform int mode = 0;
 uniform float rough = 0.9;
@@ -67,16 +73,35 @@ void vertex() {
 	lp = VERTEX;
 	ln = NORMAL;
 }
+// Anti-aliased grid lines (Issue #52): coverage of lines of half width hw around the cell edges of g (cells of size 1). As a
+// pixel spans more of a cell (fwidth), the edge softens, and once a line is thinner than a pixel it melts into its average
+// coverage instead of breaking into dashes that crawl as the view or the screen size changes.
+float grid_lines(vec2 g, float hw) {
+	vec2 fw = fwidth(g);
+	vec2 f = abs(fract(g) - 0.5);
+	vec2 e = smoothstep(vec2(0.5 - hw) - fw, vec2(0.5 - hw) + fw, f);
+	float line = max(e.x, e.y);
+	float avg = 1.0 - (1.0 - 2.0 * hw) * (1.0 - 2.0 * hw);
+	return mix(line, avg, smoothstep(hw, 4.0 * hw, max(fw.x, fw.y)));
+}
+// Anti-aliased band |d| < hw for a coordinate d (metres): the share of the pixel's span [d - fw, d + fw] that falls inside the
+// band (a box filter). Sharp up close, and once the band is thinner than a pixel its strength drops with hw / fw instead of
+// staying a one-pixel line.
+float band(float d, float hw) {
+	float fw = max(fwidth(d), 1e-5);
+	return clamp((min(d + fw, hw) - max(d - fw, -hw)) / (2.0 * fw), 0.0, 1.0);
+}
 void fragment() {
 	vec3 c = tint;
 	float n1 = vn(lp.xz * 0.8 + lp.y * 0.5);
 	float n2 = vn(lp.xz * 5.0 + lp.y * 3.0);
 	if (mode == 1) {
 		vec2 g = lp.xz / 0.6;
-		vec2 f = abs(fract(g) - 0.5);
-		c *= mix(0.9, 1.06, h(floor(g)));
-		c *= 1.0 - 0.4 * step(0.47, max(f.x, f.y));
-		float stripe = (1.0 - step(0.06, abs(lp.x + 0.9))) * (1.0 - step(24.0, lp.z)) * step(0.3, n2);
+		// Per-tile shade fades out with distance too, or far tiles flicker between light and dark.
+		float far = smoothstep(0.05, 0.2, max(fwidth(g).x, fwidth(g).y));
+		c *= mix(0.9, 1.06, mix(h(floor(g)), 0.5, far));
+		c *= 1.0 - 0.4 * grid_lines(g, 0.03);
+		float stripe = band(lp.x + 0.9, 0.06) * (1.0 - step(24.0, lp.z)) * mix(step(0.3, n2), 0.7, far);
 		c = mix(c, vec3(0.22, 0.48, 0.40), stripe * 0.8);
 		float stain = vn(lp.xz * 0.25 + 3.0);
 		c *= 1.0 - 0.25 * smoothstep(0.62, 0.7, stain) - 0.15 * (1.0 - smoothstep(0.0, 0.02, abs(stain - 0.66)));
@@ -84,20 +109,22 @@ void fragment() {
 	} else if (mode == 2) {
 		float u = abs(ln.x) > 0.5 ? lp.z : lp.x;
 		float y = lp.y;
-		c = y < 1.1 ? vec3(0.36, 0.45, 0.42) : tint;
-		c = mix(c, vec3(0.22, 0.30, 0.28), 1.0 - step(0.04, abs(y - 1.12)));
+		float fy = fwidth(y);
+		c = mix(vec3(0.36, 0.45, 0.42), tint, smoothstep(1.1 - fy, 1.1 + fy, y));
+		c = mix(c, vec3(0.22, 0.30, 0.28), band(y - 1.12, 0.04));
 		// Small flakes of peeled paint showing grey plaster, gathered in patches.
 		float patch = smoothstep(0.55, 0.75, vn(vec2(u, y) * 0.6 + 9.0));
-		float peel = smoothstep(0.5, 0.56, vn(vec2(u, y) * 7.0 + 3.0) * patch) * step(1.25, y);
+		float peel = smoothstep(0.5, 0.56, vn(vec2(u, y) * 7.0 + 3.0) * patch) * smoothstep(1.25 - fy, 1.25 + fy, y);
+		peel *= 1.0 - 0.6 * smoothstep(0.03, 0.12, max(fwidth(u), fy) * 7.0); // flakes smaller than a pixel turn into a soft patch
 		c = mix(c, vec3(0.66, 0.64, 0.6) * (0.85 + 0.2 * n2), peel);
 		c *= 1.0 - 0.28 * smoothstep(0.55, 0.9, vn(vec2(u * 6.0, y * 0.25))) * smoothstep(1.2, 4.0, y);
 		c *= mix(0.55, 1.0, smoothstep(0.0, 0.45, y + n1 * 0.2));
 		c *= 0.88 + 0.16 * n1;
 	} else if (mode == 3) {
 		vec2 g = lp.xz / 0.6;
-		vec2 f = abs(fract(g) - 0.5);
-		c *= mix(0.88, 1.04, h(floor(g) + 5.0));
-		c = mix(c, vec3(0.42, 0.44, 0.45), step(0.46, max(f.x, f.y)));
+		float far = smoothstep(0.05, 0.2, max(fwidth(g).x, fwidth(g).y));
+		c *= mix(0.88, 1.04, mix(h(floor(g) + 5.0), 0.5, far));
+		c = mix(c, vec3(0.42, 0.44, 0.45), grid_lines(g, 0.04));
 		c = mix(c, vec3(0.55, 0.44, 0.30), smoothstep(0.6, 0.75, vn(lp.xz * 0.4 + 7.0)) * 0.6);
 		c = mix(c, vec3(0.03), step(h(floor(g) + 11.0), 0.07));
 		c *= 0.85 + 0.2 * n2;
@@ -114,6 +141,34 @@ void fragment() {
 	ROUGHNESS = rough;
 	METALLIC = metal;
 	SPECULAR = 0.3;
+}
+// Inside the corridor: x(y) = how far the point sits inside both holes along its sun ray (metres, negative = blocked),
+// y = the penumbra width there. Outside the corridor: x = -100 (not handled).
+vec2 sun_gap(vec3 p, vec3 s) {
+	if (abs(p.x) > {HALF_W} + 0.02 || p.z < -0.02 || p.z > {LENGTH} + 0.02 || p.y > {CEILING} + 0.02 || s.y < 0.02) {
+		return vec2(-100.0, 0.0);
+	}
+	float t_roof = ({ROOF_TOP} - p.y) / s.y;
+	float t_ceil = ({CEILING} + 0.04 - p.y) / s.y;
+	vec2 r = p.xz + s.xz * t_roof;
+	vec2 c = p.xz + s.xz * t_ceil;
+	float d_roof = min(min(r.x - {HOLE_X0}, {HOLE_X1} - r.x), min(r.y - {HOLE_Z0}, {HOLE_Z1} - r.y));
+	float d_ceil = min(min(c.x - {CEIL_X0}, {CEIL_X1} - c.x), min(c.y - {CEIL_Z0}, {CEIL_Z1} - c.y));
+	// The sun's disc is 0.53 degrees wide: the penumbra grows with the distance the light travelled past the hole edge.
+	return vec2(min(d_roof, d_ceil), max(t_roof * 0.0093, 0.05));
+}
+void light() {
+	float att = ATTENUATION;
+	if (LIGHT_IS_DIRECTIONAL) {
+		vec3 s = transpose(mat3(MODEL_MATRIX)) * (mat3(INV_VIEW_MATRIX) * LIGHT);
+		vec2 g = sun_gap(lp, normalize(s));
+		if (g.x > -50.0) {
+			float lit = smoothstep(-g.y, g.y, g.x);
+			float inner = smoothstep(g.y, g.y + 0.25, g.x);
+			att = lit * mix(1.0, ATTENUATION, inner);
+		}
+	}
+	DIFFUSE_LIGHT += clamp(dot(NORMAL, LIGHT), 0.0, 1.0) * att * LIGHT_COLOR / PI;
 }
 """
 
@@ -166,10 +221,32 @@ void fragment() {
 }
 """
 
-static var hospital_shader := shader_of(SHADER_HOSPITAL)
+static var hospital_shader := shader_of(SHADER_HOSPITAL.format(shader_constants()))
 static var shaft_shader := shader_of(SHADER_SHAFT)
 var rng := RandomNumberGenerator.new()
 var tools := {}
+
+# Building sizes the hospital shader needs for the analytic sun (Issue #52), written into the code as constants.
+static func shader_constants() -> Dictionary:
+	return {
+		"HALF_W": "%.3f" % (CORRIDOR_W * 0.5), "LENGTH": "%.3f" % LENGTH, "CEILING": "%.3f" % CEILING, "ROOF_TOP": "%.3f" % ROOF_TOP,
+		"HOLE_X0": "%.3f" % HOLE.position.x, "HOLE_X1": "%.3f" % HOLE.end.x, "HOLE_Z0": "%.3f" % HOLE.position.y, "HOLE_Z1": "%.3f" % HOLE.end.y,
+		"CEIL_X0": "%.3f" % CEILING_HOLE.position.x, "CEIL_X1": "%.3f" % CEILING_HOLE.end.x,
+		"CEIL_Z0": "%.3f" % CEILING_HOLE.position.y, "CEIL_Z1": "%.3f" % CEILING_HOLE.end.y,
+	}
+
+# Same rule as sun_gap() in the shader (for tests): how far inside both holes the sun ray from p passes (m), and the penumbra.
+static func sun_gap(p: Vector3, to_sun: Vector3) -> Vector2:
+	var s := to_sun.normalized()
+	if absf(p.x) > CORRIDOR_W * 0.5 + 0.02 or p.z < -0.02 or p.z > LENGTH + 0.02 or p.y > CEILING + 0.02 or s.y < 0.02:
+		return Vector2(-100.0, 0.0)
+	var t_roof := (ROOF_TOP - p.y) / s.y
+	var t_ceil := (CEILING + 0.04 - p.y) / s.y
+	var r := Vector2(p.x, p.z) + Vector2(s.x, s.z) * t_roof
+	var c := Vector2(p.x, p.z) + Vector2(s.x, s.z) * t_ceil
+	var d_roof := minf(minf(r.x - HOLE.position.x, HOLE.end.x - r.x), minf(r.y - HOLE.position.y, HOLE.end.y - r.y))
+	var d_ceil := minf(minf(c.x - CEILING_HOLE.position.x, CEILING_HOLE.end.x - c.x), minf(c.y - CEILING_HOLE.position.y, CEILING_HOLE.end.y - c.y))
+	return Vector2(minf(d_roof, d_ceil), maxf(t_roof * 0.0093, 0.05))
 
 static func shader_of(code: String) -> Shader:
 	var s := Shader.new()
@@ -635,7 +712,7 @@ static func aim(root: Node3D, to_sun: Vector3, energy: float, color: Color) -> v
 	var clip: AABB = b.clip
 	var center := clip.get_center()
 	# The box mesh covers the clip box; the shader works in the shaft node's frame (hospital frame minus center).
-	(shaft.mesh as BoxMesh).size = clip.size
+	(shaft.mesh as BoxMesh).size = clip.size - Vector3.ONE * 2.0 * SHAFT_INSET
 	shaft.transform = Transform3D(Basis(), center)
 	var m := shaft.material_override as ShaderMaterial
 	m.set_shader_parameter("prism_o", (b.origin as Vector3) - center)
