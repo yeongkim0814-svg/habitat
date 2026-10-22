@@ -239,8 +239,8 @@ func talk(giver: String) -> void:
 
 func accept(id: String) -> void:
 	game.accept(id)
-	save()
 	message.text = "퀘스트를 받았다. 진행은 '퀘스트' 화면에서 본다."
+	save()
 
 func open_shop() -> void:
 	message.text = ""
@@ -248,9 +248,10 @@ func open_shop() -> void:
 
 func restart() -> void:
 	game = Game.new(Game.load_data())
-	save()
 	message.text = "처음부터 시작한다."
+	save()
 
+## 실패 안내를 덮지 않도록 다른 안내 글은 save() 전에 쓴다.
 func save() -> void:
 	if not game.save(save_path):
 		message.text = "저장하지 못했다."

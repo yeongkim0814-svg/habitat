@@ -250,6 +250,12 @@ func test_greybox_save(scene: Node3D) -> void:
 	check(scene.journal.visible and scene.game.money == saved["money"], "restart needs a second tap")
 	scene.journal.ask_restart()
 	check(scene.game.money == 0 and scene.game.status("farmer_harvest") == "available", "second tap restarts")
+	scene.save_path = "user://missing_dir/save.json"
+	scene.accept("farmer_harvest")
+	check(scene.message.text.contains("저장하지 못했다"), "a failed save is reported, not hidden by the accept notice")
+	scene.restart()
+	check(scene.message.text.contains("저장하지 못했다"), "a failed save is reported, not hidden by the restart notice")
+	scene.save_path = SCENE_SAVE
 	scene.queue_free()
 	var f := FileAccess.open(SCENE_SAVE, FileAccess.WRITE)
 	f.store_string("{broken")
