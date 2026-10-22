@@ -19,13 +19,19 @@
 | `spikes/m0_look/stage.gd` | 장면 연결 | M0 테스트 장면(거리·들판·초원·머리 위, 모두 MultiMesh) | looks, nature |
 | `spikes/m0_look/tuning_panel.gd`, `ui_kit.gd` | 장면 연결 | 태블릿 조절 패널(역할별 색, 안개·주변광·태양), 터치 크기 버튼 보조 | looks, tuning |
 | `spikes/m0_look/world.gd` | 장면 연결 | M0 장면(룩·시점·구역·시각 버튼, 측정) | 위 모듈, cylinder |
+| `core/cylinder.gd` | 순수 | 원통 좌표, 바닥 지점 (s, z), 바닥에 선 물체의 기저, 구간 메시 (spikes/s2에서 옮김) | 없음 |
+| `core/motion.gd` | 순수 | 회전계 가속도(원심 + 코리올리, spikes/s1에서 옮김) | 없음 |
+| `core/schedule.gd` | 순수 | 주민 시간표 위치(절대 시각, 직선 보행), 장소 spot, 시간표 검사 | `data/layout.json`, `data/residents.json` |
 | `core/clock.gd` | 순수 | 세계 시계(D46): 압축한 하루, 지난 일출 횟수 | 없음 |
 | `core/game.gd` | 순수 | P1 게임 상태와 명령: 소지품(개수), 돈(계정 잔액), 교환 사용량, 퀘스트 상태·납품·보상(D92~D95), 밭·대체 상자 일출 재충전, 저장·불러오기(JSON, 임시 파일 후 교체) | clock, `data/*.json` |
 | `core/shop.gd` | 순수 | 상점(D36, D79): 재화 구매·판매, 교환(일일 수량 = 호감도 단계, 일출 갱신) | game의 상태 |
-| `data/` | 데이터 | 아이템, 주민, 퀘스트, 대화, 상점, 세계 설정(JSON). 퀘스트 추가는 이 폴더만 고친다 | 없음 |
+| `game/greybox.gd` (`greybox.tscn`) | 장면 연결 | P1 회색 박스(D96): 원통 바닥, 장소 상자, 주민 캡슐, 밤낮 밝기, 상태 글, 행동 버튼 → core 명령 | core 전부 |
+| `game/player.gd` | 장면 연결 | 1인칭 CharacterBody3D(회전계 가속도, 엔진 충돌) | cylinder, motion |
+| `game/touch.gd` | 장면 연결 | 터치 조작(왼쪽 가상 스틱, 오른쪽 드래그 시점), WASD | 없음 |
+| `data/` | 데이터 | 아이템, 주민(시간표), 퀘스트, 대화, 상점, 마을 배치, 세계 설정(JSON). 퀘스트 추가는 이 폴더만 고친다 | 없음 |
 | `tests/s1`, `tests/s2`, `tests/s4`, `tests/m0`, `tests/p1` | 테스트 | 헤드리스 검증(`godot --headless --script tests/sN/run.gd`) | 대응 모듈 |
 
-## 2. 목표 구조 (P1부터 적용 중: core/, data/ 생김)
+## 2. 목표 구조 (P1부터 적용 중: core/, data/, game/ 생김)
 
 ```
 core/        순수 스크립트(RefCounted). 화면·노드 없음. 규칙 계산: 인벤토리, 사망·가방, 소리 전파, 요청 판정, 시간표

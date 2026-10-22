@@ -1,5 +1,5 @@
 {
-  "farmer": {"name": "농부"},
-  "doctor": {"name": "의사"},
-  "armor": {"name": "방어구 상인"}
+  "farmer": {"name": "농부", "schedule": [{"hour": 6, "place": "field"}, {"hour": 19, "place": "farmer_house"}]},
+  "doctor": {"name": "의사", "schedule": [{"hour": 0, "place": "clinic"}]},
+  "armor": {"name": "방어구 상인", "schedule": [{"hour": 0, "place": "armor_shop"}]}
 }
