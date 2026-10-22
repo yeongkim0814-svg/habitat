@@ -1,0 +1,8 @@
+[
+  {"id": "farmer_harvest", "giver": "farmer", "item": "crop", "count": 5, "requires": [],
+   "start": "farmer_harvest_start", "done": "farmer_harvest_done", "reward": {"money": 50}},
+  {"id": "doctor_supplies", "giver": "doctor", "item": "med_supplies", "count": 3, "requires": ["farmer_harvest"],
+   "start": "doctor_supplies_start", "done": "doctor_supplies_done", "reward": {"money": 100, "favor": 1}},
+  {"id": "armor_parts", "giver": "armor", "item": "suit_parts", "count": 3, "requires": ["doctor_supplies"],
+   "start": "armor_parts_start", "done": "armor_parts_done", "reward": {"money": 100, "favor": 1, "slot": "plate_2"}}
+]
