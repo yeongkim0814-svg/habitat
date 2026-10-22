@@ -18,11 +18,13 @@ const TENT_XFORM := Transform3D(Basis(Vector3.UP, PI / 2.0), Vector3(-11.0, 0.2,
 # Hospital interior (D60, D61) beyond the street end (street ground ends at z = -95), corridor running toward the street.
 const HOSPITAL_XFORM := Transform3D(Basis(), Vector3(0.0, 0.2, -140.0))
 # Sun shadow map: one picture covers everything from the camera out to the shadow distance, so a long distance makes every texel
-# big and the edge of a shadow shows as stair steps. Outdoors needs 160 m. Inside, the corridor is 24 m long, so 24 m keeps every
-# sunlit patch in range and each texel is 6-7x smaller. A softer filter then blurs what is left of the steps (Issue #46). The
-# biases are in metres and in texels, so they shrink with the texel. The filter is a global setting: it is only set when it changes.
+# big and the edge of a shadow shows as stair steps. Outdoors needs 160 m. Inside, the range must reach the farthest hospital
+# geometry from a camera at the corridor start (the stairwell, 30 m): beyond it the roof and walls stop casting shadows and the
+# sun leaks into the stairwell. 2 m of margin keeps each texel about 5x smaller than outdoors. A softer filter then blurs what is
+# left of the steps (Issue #46). The biases are in metres and in texels, so they shrink with the texel. The filter is a global
+# setting: it is only set when it changes.
 const SHADOW_OUTDOOR := {"distance": 160.0, "bias": 0.05, "normal_bias": 2.0, "soft": RenderingServer.SHADOW_QUALITY_SOFT_LOW}
-const SHADOW_HOSPITAL := {"distance": 24.0, "bias": 0.02, "normal_bias": 1.0, "soft": RenderingServer.SHADOW_QUALITY_SOFT_HIGH}
+const SHADOW_HOSPITAL := {"distance": Hospital.EXTENT + 2.0, "bias": 0.02, "normal_bias": 1.0, "soft": RenderingServer.SHADOW_QUALITY_SOFT_HIGH}
 const BENCH_FRAMES := 90
 const BENCH_SKIP := 12
 

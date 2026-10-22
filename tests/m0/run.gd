@@ -277,6 +277,6 @@ func test_hospital() -> void:
 	var indoor := World.shadow_settings("hospital")
 	var outdoor := World.shadow_settings("street")
 	check(outdoor.distance == 160.0 and World.shadow_settings("tent") == outdoor, "outdoor views keep the 160 m sun shadow")
-	check(indoor.distance >= Hospital.LENGTH and indoor.distance < outdoor.distance / 4.0, "hospital shadow distance covers the corridor and is much shorter (%s)" % indoor.distance)
+	check(indoor.distance >= Hospital.EXTENT and indoor.distance < outdoor.distance / 4.0, "hospital shadow distance reaches the stairwell end and is much shorter than outdoors (%s)" % indoor.distance)
 	check(indoor.soft > outdoor.soft and indoor.bias < outdoor.bias and indoor.normal_bias < outdoor.normal_bias, "hospital uses a softer filter and smaller biases")
 	h.free()
