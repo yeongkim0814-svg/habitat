@@ -1,0 +1,7 @@
+{
+  "day_real_seconds": 7200,
+  "sunrise_hour": 6,
+  "start": {"hour": 8, "money": 0, "slots": ["filter", "plate", "storage"]},
+  "field": {"item": "crop", "count": 6},
+  "crate": {"med_supplies": 3, "suit_parts": 3}
+}
