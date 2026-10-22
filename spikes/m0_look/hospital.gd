@@ -8,6 +8,8 @@ const CORRIDOR_W := 3.0 # D53 module: corridor 3 m wide, ceiling 4 m
 const CEILING := 4.0
 const LENGTH := 24.0 # corridor runs along +z from 0 to LENGTH
 const T := 0.25 # wall thickness
+const STAIR_LENGTH := 6.0 # stairwell beyond the corridor end
+const EXTENT := LENGTH + T + STAIR_LENGTH # farthest hospital geometry along z (30.25 m)
 const ROOF := 4.4 # structural slab bottom, 0.3 m thick
 const ROOF_TOP := 4.7
 const STAIR_TOP := 8.0 # the stairwell spans both floors
@@ -325,7 +327,7 @@ func shell() -> void:
 	plate("slab", ROOF, ROOF_TOP, ROOM.position.x, ROOM.end.x, ROOM.position.y, ROOM.end.y)
 	# Stairwell beyond the corridor end, two floors tall.
 	var s0 := LENGTH + T
-	var s1 := s0 + 6.0
+	var s1 := s0 + STAIR_LENGTH
 	block("floor", Vector3(-w, -0.6, s0), Vector3(w, 0.0, s1))
 	wall(true, -w - T * 0.5, s0, s1, [], STAIR_TOP)
 	wall(true, w + T * 0.5, s0, s1, [], STAIR_TOP)
@@ -343,7 +345,7 @@ func stairs() -> void:
 		block("slab", Vector3(-w, 0.0, z), Vector3(0.0, (k + 1) * rise, z + run))
 		block("trim", Vector3(-w, (k + 1) * rise, z - 0.02), Vector3(0.0, (k + 1) * rise + 0.02, z + 0.03))
 	var landing := s0 + 12 * run
-	block("slab", Vector3(-w, 0.0, landing), Vector3(w, 12 * rise, LENGTH + T + 6.0))
+	block("slab", Vector3(-w, 0.0, landing), Vector3(w, 12 * rise, EXTENT))
 	for k in range(12):
 		var z := landing - (k + 1) * run
 		var top := (13 + k) * rise

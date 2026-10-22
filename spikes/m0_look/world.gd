@@ -17,6 +17,14 @@ const TORCH_ORDER: Array[String] = ["off", "lamp", "shadow", "shadow", "lamp", "
 const TENT_XFORM := Transform3D(Basis(Vector3.UP, PI / 2.0), Vector3(-11.0, 0.2, -12.0))
 # Hospital interior (D60, D61) beyond the street end (street ground ends at z = -95), corridor running toward the street.
 const HOSPITAL_XFORM := Transform3D(Basis(), Vector3(0.0, 0.2, -140.0))
+# Sun shadow map: one picture covers everything from the camera out to the shadow distance, so a long distance makes every texel
+# big and the edge of a shadow shows as stair steps. Outdoors needs 160 m. Inside, the range must reach the farthest hospital
+# geometry from a camera at the corridor start (the stairwell, 30 m): beyond it the roof and walls stop casting shadows and the
+# sun leaks into the stairwell. 2 m of margin keeps each texel about 5x smaller than outdoors. A softer filter then blurs what is
+# left of the steps (Issue #46). The biases are in metres and in texels, so they shrink with the texel. The filter is a global
+# setting: it is only set when it changes.
+const SHADOW_OUTDOOR := {"distance": 160.0, "bias": 0.05, "normal_bias": 2.0, "soft": RenderingServer.SHADOW_QUALITY_SOFT_LOW}
+const SHADOW_HOSPITAL := {"distance": Hospital.EXTENT + 2.0, "bias": 0.02, "normal_bias": 1.0, "soft": RenderingServer.SHADOW_QUALITY_SOFT_HIGH}
 const BENCH_FRAMES := 90
 const BENCH_SKIP := 12
 
@@ -42,6 +50,7 @@ var gpu_samples: Array[float] = []
 var bench_lines: Array[String] = []
 var bench_gpu := {} # "look:view:torch" -> GPU ms of each run, for the flashlight summary
 var hemi := true # FLAT hemisphere ambient (Issue #40)
+var soft_quality := RenderingServer.SHADOW_QUALITY_SOFT_LOW
 var torch := "lamp" # player flashlight: off, lamp, or lamp with shadows (Issue #42)
 var flashlight := SpotLight3D.new()
 var hospital_node: Node3D
@@ -61,9 +70,6 @@ func _ready() -> void:
 	sun.shadow_enabled = true
 	sun.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY # no sun disk in the ambient sky
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
-	sun.directional_shadow_max_distance = 160.0
-	sun.shadow_bias = 0.05
-	sun.shadow_normal_bias = 2.0
 	scene.add_child(sun)
 	camera.far = 3500.0
 	camera.fov = 75.0
@@ -171,10 +177,20 @@ func apply_torch() -> void:
 	flashlight.visible = torch != "off"
 	flashlight.shadow_enabled = torch == "shadow"
 
+static func shadow_settings(v: String) -> Dictionary:
+	return SHADOW_HOSPITAL if v == "hospital" else SHADOW_OUTDOOR
+
 func apply_time() -> void:
 	var theta := Sun.SAFE_FLOOR_ANGLE if zone == "safe" else Sun.DANGER_FLOOR_ANGLE
 	var elev := Sun.elevation_deg(hour, theta)
 	sun.look_at_from_position(Sun.to_sun(hour) * 200.0, Vector3.ZERO)
+	var shadow := shadow_settings(view)
+	sun.directional_shadow_max_distance = shadow.distance
+	sun.shadow_bias = shadow.bias
+	sun.shadow_normal_bias = shadow.normal_bias
+	if soft_quality != shadow.soft:
+		soft_quality = shadow.soft
+		RenderingServer.directional_soft_shadow_filter_set_quality(soft_quality)
 	sun.light_energy = Sun.light_energy(elev) * panel.value("sun")
 	if view == "hospital":
 		# Eyes adapt to the dark interior, so sunlight through the roof hole looks several times brighter than outdoors.
