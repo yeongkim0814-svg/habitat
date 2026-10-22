@@ -1,5 +1,9 @@
 {
   "crop": {"name": "감자"},
   "med_supplies": {"name": "병원 의료품"},
-  "suit_parts": {"name": "방호복 부품"}
+  "suit_parts": {"name": "방호복 부품"},
+  "filter_basic": {"name": "기본 필터"},
+  "plate_basic": {"name": "기본 방어 플레이트"},
+  "medkit": {"name": "응급키트"},
+  "antidote": {"name": "해독제"}
 }

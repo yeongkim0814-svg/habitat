@@ -2,7 +2,7 @@ extends RefCounted
 ## P1 게임 상태와 명령(D92~D95). 화면·노드 없음. 내용은 data/의 JSON에서 읽는다.
 
 const Clock = preload("res://core/clock.gd")
-const SAVE_VERSION := 1
+const SAVE_VERSION := 2
 
 var data: Dictionary
 var clock: Clock
@@ -13,10 +13,11 @@ var slots: Array = []
 var quests := {}
 var field := 0
 var crate := {}
+var barter_used := {}
 
 static func load_data(dir := "res://data") -> Dictionary:
 	var d := {}
-	for key in ["items", "residents", "quests", "dialogues", "world"]:
+	for key in ["items", "residents", "quests", "dialogues", "world", "shops"]:
 		d[key] = JSON.parse_string(FileAccess.get_file_as_string("%s/%s.json" % [dir, key]))
 	return d
 
@@ -45,6 +46,15 @@ func validate() -> Array:
 		for r in q["requires"]:
 			if not ids.has(r):
 				errors.append("%s: 없는 선행 퀘스트 %s" % [q["id"], r])
+	for shop in data["shops"]:
+		if not data["residents"].has(shop):
+			errors.append("shops: 없는 주민 %s" % shop)
+		var used: Array = data["shops"][shop]["sell"].keys() + data["shops"][shop]["buy"].keys()
+		for offer in data["shops"][shop]["barter"]:
+			used += offer["give"].keys() + [offer["get"]]
+		for item in used:
+			if not data["items"].has(item):
+				errors.append("shops.%s: 없는 아이템 %s" % [shop, item])
 	for item in [data["world"]["field"]["item"]] + data["world"]["crate"].keys():
 		if not data["items"].has(item):
 			errors.append("world: 없는 아이템 %s" % item)
@@ -133,9 +143,10 @@ func open_crate() -> Dictionary:
 	crate = {}
 	return got
 
-## 거주구 특수 요청(D92): 밭과 대체 상자는 일출마다 다시 채워진다.
+## 거주구 특수 요청(D92): 밭과 대체 상자는 일출마다 다시 채워진다. 교환 일일 수량도 일출에 갱신한다(D47).
 func refill() -> void:
 	field = int(data["world"]["field"]["count"])
+	barter_used = {}
 	crate = {}
 	for k in data["world"]["crate"]:
 		crate[k] = int(data["world"]["crate"][k])
@@ -146,18 +157,18 @@ func advance(real_dt: float) -> void:
 
 func to_dict() -> Dictionary:
 	return {"version": SAVE_VERSION, "seconds": clock.seconds, "items": items, "money": money,
-		"favor": favor, "slots": slots, "quests": quests, "field": field, "crate": crate}
+		"favor": favor, "slots": slots, "quests": quests, "field": field, "crate": crate, "barter_used": barter_used}
 
-## 저장 dict를 검사해 정리한 사본을 돌려준다. 형식이 하나라도 틀리면 {}.
+## 저장 dict를 검사해 정리한 사본을 돌려준다. 형식이 틀리거나 수량·돈이 음수면 {}.
 static func clean(d) -> Dictionary:
 	if not d is Dictionary or d.get("version") != SAVE_VERSION:
 		return {}
 	var out := {}
 	for key in ["seconds", "money", "field"]:
-		if not (d.get(key) is float or d.get(key) is int):
+		if not (d.get(key) is float or d.get(key) is int) or d[key] < 0:
 			return {}
 		out[key] = d[key]
-	for key in ["items", "favor", "crate", "quests"]:
+	for key in ["items", "favor", "crate", "barter_used", "quests"]:
 		if not d.get(key) is Dictionary:
 			return {}
 		out[key] = {}
@@ -167,7 +178,7 @@ static func clean(d) -> Dictionary:
 				if not v is String:
 					return {}
 				out[key][k] = v
-			elif v is float or v is int:
+			elif (v is float or v is int) and v >= 0:
 				out[key][k] = int(v)
 			else:
 				return {}
@@ -188,6 +199,7 @@ func from_dict(d: Dictionary) -> void:
 	quests = d["quests"]
 	field = int(d["field"])
 	crate = d["crate"]
+	barter_used = d["barter_used"]
 
 ## 임시 파일에 다 쓴 것을 확인한 뒤 바꿔 넣어, 실패해도 이전 저장이 남는다.
 func save(path: String) -> bool:
