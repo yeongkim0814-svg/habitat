@@ -20,8 +20,9 @@
 | `spikes/m0_look/tuning_panel.gd`, `ui_kit.gd` | 장면 연결 | 태블릿 조절 패널(역할별 색, 안개·주변광·태양), 터치 크기 버튼 보조 | looks, tuning |
 | `spikes/m0_look/world.gd` | 장면 연결 | M0 장면(룩·시점·구역·시각 버튼, 측정) | 위 모듈, cylinder |
 | `core/clock.gd` | 순수 | 세계 시계(D46): 압축한 하루, 지난 일출 횟수 | 없음 |
-| `core/game.gd` | 순수 | P1 게임 상태와 명령: 소지품(개수), 돈, 퀘스트 상태·납품·보상(D92~D95), 밭·대체 상자 일출 재충전, 저장·불러오기(JSON, 임시 파일 후 교체) | clock, `data/*.json` |
-| `data/` | 데이터 | 아이템, 주민, 퀘스트, 대화, 세계 설정(JSON). 퀘스트 추가는 이 폴더만 고친다 | 없음 |
+| `core/game.gd` | 순수 | P1 게임 상태와 명령: 소지품(개수), 돈(계정 잔액), 교환 사용량, 퀘스트 상태·납품·보상(D92~D95), 밭·대체 상자 일출 재충전, 저장·불러오기(JSON, 임시 파일 후 교체) | clock, `data/*.json` |
+| `core/shop.gd` | 순수 | 상점(D36, D79): 재화 구매·판매, 교환(일일 수량 = 호감도 단계, 일출 갱신) | game의 상태 |
+| `data/` | 데이터 | 아이템, 주민, 퀘스트, 대화, 상점, 세계 설정(JSON). 퀘스트 추가는 이 폴더만 고친다 | 없음 |
 | `tests/s1`, `tests/s2`, `tests/s4`, `tests/m0`, `tests/p1` | 테스트 | 헤드리스 검증(`godot --headless --script tests/sN/run.gd`) | 대응 모듈 |
 
 ## 2. 목표 구조 (P1부터 적용 중: core/, data/ 생김)

@@ -1,6 +1,7 @@
 extends SceneTree
 const Game = preload("res://core/game.gd")
 const Clock = preload("res://core/clock.gd")
+const Shop = preload("res://core/shop.gd")
 var passed := 0
 var failed := 0
 
@@ -19,6 +20,7 @@ func run() -> void:
 	test_clock()
 	test_playthrough()
 	test_save()
+	test_shop()
 	test_data_only_quest()
 	print("%d passed, %d failed" % [passed, failed])
 	quit(1 if failed > 0 else 0)
@@ -113,3 +115,34 @@ func test_data_only_quest() -> void:
 	d["quests"].append({"id": "bad", "giver": "nobody", "item": "rock", "count": 1, "requires": ["nope"],
 		"start": "x", "done": "y", "reward": {}})
 	check(Game.new(d).validate().size() == 5, "broken quest reports 5 errors")
+	d["shops"]["armor"]["sell"]["rock"] = 1
+	check(Game.new(d).validate().size() == 6, "unknown shop item is reported")
+
+func test_shop() -> void:
+	var g := Game.new(Game.load_data())
+	check(not Shop.buy(g, "armor", "filter_basic"), "no money, no purchase")
+	g.money = 100
+	check(Shop.buy(g, "armor", "filter_basic") and g.money == 60 and g.count("filter_basic") == 1, "buy filter for 40")
+	check(not Shop.buy(g, "armor", "medkit"), "armor merchant does not sell medkits")
+	check(Shop.sell(g, "armor", "filter_basic") and g.money == 75 and g.count("filter_basic") == 0, "sell filter back for 15")
+	check(not Shop.sell(g, "armor", "filter_basic"), "cannot sell what you do not have")
+	check(not Shop.sell(g, "doctor", "suit_parts"), "doctor does not buy suit parts")
+	check(Shop.offers(g, "armor").map(func(o): return o["id"]) == ["armor_filter"], "favor 0 shows only the filter barter")
+	for i in 6:
+		g.harvest()
+	check(not Shop.barter(g, "armor", "armor_plate"), "locked barter is refused")
+	check(Shop.barter(g, "armor", "armor_filter") and g.count("crop") == 2 and g.count("filter_basic") == 1, "4 crops -> filter")
+	g.add("crop", 10)
+	check(not Shop.barter(g, "armor", "armor_filter") and Shop.offers(g, "armor")[0]["left"] == 0, "daily limit 1 at favor 0")
+	g.favor["armor"] = 1
+	check(Shop.offers(g, "armor").size() == 2 and Shop.offers(g, "armor")[0]["left"] == 1, "favor 1 raises stock and opens plate barter")
+	check(not Shop.barter(g, "armor", "armor_plate"), "plate barter needs parts and supplies")
+	g.open_crate()
+	check(Shop.barter(g, "armor", "armor_plate") and g.count("plate_basic") == 1 and g.count("suit_parts") == 1, "parts + supplies -> plate")
+	var path := "user://p1_shop_save.json"
+	g.save(path)
+	var h := Game.new(Game.load_data())
+	check(h.load(path) and h.barter_used == g.barter_used, "barter use survives save")
+	DirAccess.remove_absolute(path)
+	g.advance(7200.0)
+	check(g.barter_used.is_empty() and Shop.offers(g, "armor")[0]["left"] == 2, "sunrise resets daily barter")

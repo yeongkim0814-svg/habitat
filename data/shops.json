@@ -1,0 +1,17 @@
+{
+  "armor": {
+    "sell": {"filter_basic": 40, "plate_basic": 120},
+    "buy": {"crop": 3, "med_supplies": 15, "suit_parts": 25, "filter_basic": 15},
+    "barter": [
+      {"id": "armor_filter", "give": {"crop": 4}, "get": "filter_basic", "daily": [1, 2, 3]},
+      {"id": "armor_plate", "give": {"suit_parts": 2, "med_supplies": 1}, "get": "plate_basic", "daily": [0, 1, 2]}
+    ]
+  },
+  "doctor": {
+    "sell": {"medkit": 30, "antidote": 25},
+    "buy": {"crop": 3, "med_supplies": 20},
+    "barter": [
+      {"id": "doctor_medkit", "give": {"crop": 3}, "get": "medkit", "daily": [1, 2, 3]}
+    ]
+  }
+}
