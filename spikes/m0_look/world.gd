@@ -12,7 +12,6 @@ const VIEWS: Array[String] = ["street", "boundary", "field", "meadow", "overhead
 const VIEW_NAMES := {"street": "거리", "boundary": "경계", "field": "들판", "meadow": "초원", "overhead": "머리 위", "tent": "의무실", "hospital": "병원"}
 const ZONE_NAMES := {"safe": "안전구역", "danger": "오염구역"}
 const TORCH_NAMES := {"off": "손전등 끔", "lamp": "손전등", "shadow": "손전등+그림자"}
-const TORCH_ORDER: Array[String] = ["off", "lamp", "shadow", "shadow", "lamp", "off"]
 # Infirmary tent between the west lamp line (x = -6) and the buildings (x = -16), door facing the street.
 const TENT_XFORM := Transform3D(Basis(Vector3.UP, PI / 2.0), Vector3(-11.0, 0.2, -12.0))
 # Hospital interior (D60, D61) beyond the street end (street ground ends at z = -95), corridor running toward the street.
@@ -27,6 +26,9 @@ const SHADOW_OUTDOOR := {"distance": 160.0, "bias": 0.05, "normal_bias": 2.0, "s
 const SHADOW_HOSPITAL := {"distance": Hospital.EXTENT + 2.0, "bias": 0.02, "normal_bias": 1.0, "soft": RenderingServer.SHADOW_QUALITY_SOFT_HIGH}
 # Render resolution per axis (Issue #48): 100 / 75 / 50 % draw 1 / 0.56 / 0.25 of the pixels. PSX keeps its own 1/4 (part of the look).
 const SCALES: Array[float] = [1.0, 0.75, 0.5]
+# Benchmark (Issue #48): FLAT only (the base look, D49, D91) at 100, 75, 50, 50, 75, 100 % per view.
+const BENCH_LOOK := "flat"
+const SCALE_ORDER: Array[int] = [100, 75, 50, 50, 75, 100]
 const BENCH_FRAMES := 90
 const BENCH_SKIP := 12
 
@@ -55,6 +57,7 @@ var hemi := true # FLAT hemisphere ambient (Issue #40)
 var soft_quality := RenderingServer.SHADOW_QUALITY_SOFT_LOW
 var torch := "lamp" # player flashlight: off, lamp, or lamp with shadows (Issue #42)
 var render_scale := 1.0
+var scale_before_bench := 1.0
 var flashlight := SpotLight3D.new()
 var hospital_node: Node3D
 var bench_frame := 0
@@ -369,25 +372,33 @@ func start_bench() -> void:
 	# Compatibility cannot uncap VSync, so frame time alone is capped by the refresh interval: also record renderer CPU/GPU time.
 	RenderingServer.viewport_set_measure_render_time(viewport.get_viewport_rid(), true)
 	bench_gpu.clear()
+	scale_before_bench = render_scale
 	bench_queue = bench_items()
 	next_bench()
 
-# Each look x view is measured with the flashlight off, on, on with shadows, then back (ABCCBA) (Issue #42).
+# Each view is measured at 100, 75, 50, 50, 75, 100 % render scale back to back, with the flashlight as it is set.
 # The order is symmetric in time, so drift that is linear in time (temperature, clocks) cancels in every pairwise
-# difference of the averaged states (Issue #38).
+# difference of the averaged scales (Issue #38). Only FLAT: other looks no longer serve as a control, since the scale
+# changes every look alike (the flashlight cost was measured as ~0 in #43).
 static func bench_items() -> Array[String]:
 	var items: Array[String] = []
-	for l in Looks.IDS:
-		for v in VIEWS:
-			for state in TORCH_ORDER:
-				items.append("%s:%s:%s" % [l, v, state])
+	for v in VIEWS:
+		for pct in SCALE_ORDER:
+			items.append("%s:%s:%d" % [BENCH_LOOK, v, pct])
 	return items
 
-static func cost_line(l: String, v: String, off: float, lamp: float, shadow: float) -> String:
+# GPU time = fixed + per-pixel x pixel share. Two points (100 % = 1, 50 % = 0.25 of the pixels) give both parts; 75 %
+# (0.5625) is the check: if its measured time sits near the prediction, the split holds.
+static func split_cost(t100: float, t50: float) -> Vector2:
+	var pixel := (t100 - t50) / 0.75
+	return Vector2(t100 - pixel, pixel)
+
+static func cost_line(l: String, v: String, t100: float, t75: float, t50: float) -> String:
 	# The renderer reports 0 when GPU timing is unavailable: say so instead of showing a zero difference.
-	if off <= 0.0 or lamp <= 0.0 or shadow <= 0.0:
+	if t100 <= 0.0 or t75 <= 0.0 or t50 <= 0.0:
 		return "%s %s: GPU 시간 없음(로그의 mean_ms 참고)" % [l, v]
-	return "%s %s: 손전등 끔 %.2f / 켬 %+.2f / 그림자 %+.2f ms" % [l, v, off, lamp - off, shadow - lamp]
+	var c := split_cost(t100, t50)
+	return "%s %s: 100%% %.2f / 75%% %.2f / 50%% %.2f | 고정 %.2f 픽셀 %.2f (75%% 예측 %.2f) ms" % [l, v, t100, t75, t50, c.x, c.y, c.x + c.y * 0.5625]
 
 static func mean_gpu(runs: Array) -> float:
 	# A run without GPU timing (0) makes the whole condition unavailable.
@@ -402,7 +413,7 @@ func next_bench() -> void:
 	var parts := bench_queue[0].split(":")
 	look = parts[0]
 	view = parts[1]
-	torch = parts[2]
+	render_scale = int(parts[2]) / 100.0
 	rebuild()
 	bench_samples.clear()
 	cpu_samples.clear()
@@ -414,21 +425,19 @@ func finish_bench_item() -> void:
 	sorted.sort()
 	var p95: float = sorted[int(sorted.size() * 0.95)]
 	var gpu := mean_of(gpu_samples)
-	var torch_state := bench_queue[0].split(":")[2]
 	bench_gpu.get_or_add(bench_queue[0], []).append(gpu)
-	var line := "M0 look=%s view=%s torch=%s mean_ms=%.3f p95_ms=%.3f render_cpu_mean_ms=%.3f render_gpu_mean_ms=%s samples=%d refresh_hz=%s vsync=%d scale=%d" % [look, view, torch_state, mean_of(bench_samples), p95, mean_of(cpu_samples), "%.3f" % gpu if gpu > 0.0 else "?", bench_samples.size(), refresh_text(), DisplayServer.window_get_vsync_mode(), roundi(effective_scale(look, render_scale) * 100.0)]
+	var line := "M0 look=%s view=%s torch=%s mean_ms=%.3f p95_ms=%.3f render_cpu_mean_ms=%.3f render_gpu_mean_ms=%s samples=%d refresh_hz=%s vsync=%d scale=%d" % [look, view, torch, mean_of(bench_samples), p95, mean_of(cpu_samples), "%.3f" % gpu if gpu > 0.0 else "?", bench_samples.size(), refresh_text(), DisplayServer.window_get_vsync_mode(), roundi(effective_scale(look, render_scale) * 100.0)]
 	print(line)
 	bench_queue.remove_at(0)
 	if bench_queue.is_empty():
-		# Full lines go to the log; the screen shows one GPU line per look x view so all 28 fit.
-		for l in Looks.IDS:
-			for v in VIEWS:
-				var g := func(state: String) -> float: return mean_gpu(bench_gpu["%s:%s:%s" % [l, v, state]])
-				bench_lines.append(cost_line(l, v, g.call("off"), g.call("lamp"), g.call("shadow")))
-		bench_lines.append("GPU ms, %s Hz, vsync=%d, 해상도 %d%% (PSX는 25%%)" % [refresh_text(), DisplayServer.window_get_vsync_mode(), roundi(render_scale * 100.0)])
+		# Full lines go to the log; the screen shows one GPU line per view.
+		for v in VIEWS:
+			var g := func(pct: int) -> float: return mean_gpu(bench_gpu["%s:%s:%d" % [BENCH_LOOK, v, pct]])
+			bench_lines.append(cost_line(BENCH_LOOK, v, g.call(100), g.call(75), g.call(50)))
+		bench_lines.append("GPU ms, %s Hz, vsync=%d, %s" % [refresh_text(), DisplayServer.window_get_vsync_mode(), TORCH_NAMES[torch]])
 		print("\n".join(bench_lines))
-		torch = "lamp"
-		apply_torch()
+		render_scale = scale_before_bench
+		fit_view()
 		apply_time()
 		label.text = "\n".join(bench_lines)
 		label.add_theme_font_size_override("font_size", 20)
