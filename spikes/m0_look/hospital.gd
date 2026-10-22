@@ -84,11 +84,12 @@ float grid_lines(vec2 g, float hw) {
 	float avg = 1.0 - (1.0 - 2.0 * hw) * (1.0 - 2.0 * hw);
 	return mix(line, avg, smoothstep(hw, 4.0 * hw, max(fw.x, fw.y)));
 }
-// Anti-aliased band |d| < hw for a coordinate d (metres), fading to its average once it is thinner than a pixel.
+// Anti-aliased band |d| < hw for a coordinate d (metres): the share of the pixel's span [d - fw, d + fw] that falls inside the
+// band (a box filter). Sharp up close, and once the band is thinner than a pixel its strength drops with hw / fw instead of
+// staying a one-pixel line.
 float band(float d, float hw) {
-	float fw = fwidth(d);
-	float b = 1.0 - smoothstep(hw - fw, hw + fw, abs(d));
-	return b * (1.0 - smoothstep(hw, 4.0 * hw, fw) * 0.5);
+	float fw = max(fwidth(d), 1e-5);
+	return clamp((min(d + fw, hw) - max(d - fw, -hw)) / (2.0 * fw), 0.0, 1.0);
 }
 void fragment() {
 	vec3 c = tint;
