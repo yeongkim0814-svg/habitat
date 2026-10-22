@@ -30,6 +30,7 @@ const KINDS := {
 	"ceiling": [Color(0.78, 0.77, 0.72), 3, 0.95, 0.0],
 	"slab": [Color(0.45, 0.44, 0.42), 0, 1.0, 0.0],
 	"trim": [Color(0.55, 0.60, 0.62), 0, 0.6, 0.2],
+	"tbar": [Color(0.55, 0.60, 0.62), 0, 0.6, 0.2], # thin parts in the sunlight path: drawn, but cast no shadow (Issue #50)
 	"door": [Color(0.42, 0.52, 0.55), 0, 0.7, 0.0],
 	"glass": [Color(0.10, 0.13, 0.15), 0, 0.15, 0.0],
 	"metal": [Color(0.60, 0.62, 0.62), 0, 0.45, 0.6],
@@ -508,10 +509,10 @@ func debris(at: Vector3, amount := 1.0) -> void:
 		# Bare T-bar grid left where the tiles fell.
 		for k in range(1, int(CEILING_HOLE.size.y / 0.6)):
 			var z := CEILING_HOLE.position.y + k * 0.6
-			block("trim", Vector3(-CORRIDOR_W * 0.5, CEILING, z - 0.015), Vector3(CORRIDOR_W * 0.5 - 0.6 * float(k % 3 == 0), CEILING + 0.03, z + 0.015))
+			block("tbar", Vector3(-CORRIDOR_W * 0.5, CEILING, z - 0.015), Vector3(CORRIDOR_W * 0.5 - 0.6 * float(k % 3 == 0), CEILING + 0.03, z + 0.015))
 		for k in range(5):
 			var x := lerpf(HOLE.position.x, HOLE.end.x, (k + 0.5) / 5.0)
-			line("metal", Vector3(x, ROOF + 0.1, HOLE.end.y - 0.05), Vector3(x + 0.05, ROOF - 0.25 - rng.randf() * 0.2, HOLE.end.y - 0.3), 0.01)
+			line("tbar", Vector3(x, ROOF + 0.1, HOLE.end.y - 0.05), Vector3(x + 0.05, ROOF - 0.25 - rng.randf() * 0.2, HOLE.end.y - 0.3), 0.01)
 
 func box_mesh(size: Vector3) -> BoxMesh:
 	var b := BoxMesh.new()
@@ -587,6 +588,8 @@ func make() -> Node3D:
 		node.name = key.replace("/", "_")
 		node.mesh = (tools[key] as SurfaceTool).commit()
 		node.material_override = material(key.split("/")[1])
+		if key.ends_with("/tbar"):
+			node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(node)
 	return root
 

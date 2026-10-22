@@ -280,6 +280,17 @@ func test_hospital() -> void:
 	check(c.is_equal_approx(Vector2(1.0, 4.0)), "two scales split GPU time into fixed and per-pixel parts (%s)" % c)
 	var line := World.cost_line("flat", "hospital", 5.0, 3.25, 2.0)
 	check(line.contains("고정 1.00 픽셀 4.00") and line.contains("75% 예측 3.25"), "cost line shows the split and the 75 %% check (%s)" % line)
+	# Thin parts in the sunlight path (ceiling grid, rebar) are drawn but cast no shadow: their fine stripes alias into broad
+	# bands on small screens (Issue #50). Everything else still casts shadows.
+	var tbars := 0
+	for node in h.find_children("*", "MeshInstance3D", false, false):
+		var mi := node as MeshInstance3D
+		if String(mi.name).ends_with("_tbar"):
+			tbars += 1
+			check(mi.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, "%s casts no shadow" % mi.name)
+		elif mi.name != "shaft":
+			check(mi.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, "%s still casts shadows" % mi.name)
+	check(tbars >= 1, "ceiling grid and rebar are in their own no-shadow mesh (got %d)" % tbars)
 	# Sun shadow map (Issue #46): the hospital needs a short shadow distance and a softer filter; outdoors keeps 160 m.
 	var indoor := World.shadow_settings("hospital")
 	var outdoor := World.shadow_settings("street")
