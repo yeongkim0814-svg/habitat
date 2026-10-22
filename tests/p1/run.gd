@@ -2,6 +2,8 @@ extends SceneTree
 const Game = preload("res://core/game.gd")
 const Clock = preload("res://core/clock.gd")
 const Shop = preload("res://core/shop.gd")
+const Schedule = preload("res://core/schedule.gd")
+const Cylinder = preload("res://core/cylinder.gd")
 var passed := 0
 var failed := 0
 
@@ -21,6 +23,8 @@ func run() -> void:
 	test_playthrough()
 	test_save()
 	test_shop()
+	test_schedule()
+	await test_greybox()
 	test_data_only_quest()
 	print("%d passed, %d failed" % [passed, failed])
 	quit(1 if failed > 0 else 0)
@@ -152,3 +156,43 @@ func test_shop() -> void:
 	DirAccess.remove_absolute(path)
 	g.advance(7200.0)
 	check(g.barter_used.is_empty() and Shop.offers(g, "armor")[0]["left"] == 2, "sunrise resets daily barter")
+
+func test_schedule() -> void:
+	var d := Game.load_data()
+	check(Schedule.validate(d).is_empty(), "shipped schedules reference known places in order")
+	var farmer: Dictionary = d["residents"]["farmer"]
+	var lay: Dictionary = d["layout"]
+	var field := Schedule.spot(lay, "field")
+	var house := Schedule.spot(lay, "farmer_house")
+	check(Schedule.position(lay, farmer, 12 * 3600.0, 12.0) == field, "farmer in the field at noon")
+	check(Schedule.position(lay, farmer, 2 * 3600.0, 12.0) == house, "farmer at home at 02:00")
+	var walk := field.distance_to(house) / 1.4 * 12.0
+	var mid := Schedule.position(lay, farmer, 19 * 3600.0 + walk / 2.0, 12.0)
+	check(mid.distance_to((field + house) / 2.0) < 0.01, "farmer halfway home after half the walk")
+	check(Schedule.position(lay, farmer, 19 * 3600.0 + walk + 1.0, 12.0) == house, "farmer arrives home")
+	check(Schedule.position(lay, d["residents"]["armor"], 3 * 3600.0, 12.0) == Schedule.spot(lay, "armor_shop"), "merchant stays at the shop")
+	d["residents"]["farmer"]["schedule"].append({"hour": 3, "place": "moon"})
+	check(Schedule.validate(d).size() == 2, "unknown place and out-of-order hour are reported")
+
+func test_greybox() -> void:
+	var scene: Node3D = load("res://game/greybox.tscn").instantiate()
+	root.add_child(scene)
+	for i in 30:
+		await physics_frame
+	var r := Vector2(scene.player.position.x, scene.player.position.y).length()
+	check(absf(r - (Cylinder.R - 0.9)) < 0.05, "player stands on the cylinder floor (r=%.3f)" % r)
+	var crate := Schedule.spot(scene.game.data["layout"], "crate")
+	scene.player.position = Cylinder.surface(crate.x, crate.y, 0.9)
+	await process_frame
+	await process_frame
+	check(scene.target.get("kind") == "crate" and scene.action.visible, "crate is the action target next to it")
+	scene.act()
+	check(scene.game.count("med_supplies") == 3, "action button opens the crate")
+	var farmer: Node3D = scene.residents["farmer"]
+	scene.player.position = farmer.position + Cylinder.upright(farmer.position).x * 1.0
+	await process_frame
+	await process_frame
+	check(scene.target.get("id") == "farmer", "farmer is the action target next to him")
+	scene.act()
+	check(scene.game.status("farmer_harvest") == "active" and scene.message.text.contains("감자"), "talking accepts the farmer quest")
+	scene.queue_free()

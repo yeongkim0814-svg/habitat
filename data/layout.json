@@ -1,0 +1,12 @@
+{
+  "spawn": [0, -45],
+  "walk_speed": 1.4,
+  "places": {
+    "field": {"name": "밭", "at": [-9, -60], "size": [16, 0.2, 12], "spot": [-1, -60], "use": "harvest", "use_at": [-9, -60], "reach": 8},
+    "farmer_house": {"name": "농부 집", "at": [8, -30], "size": [8, 4, 8], "spot": [2.5, -30]},
+    "clinic": {"name": "의무실", "at": [-8, 0], "size": [10, 3, 8], "spot": [-2.5, 0]},
+    "armor_shop": {"name": "방어구 상점", "at": [8, 30], "size": [10, 4, 8], "spot": [2.5, 30]},
+    "gate": {"name": "출격 게이트", "at": [0, 66], "size": [12, 6, 1], "spot": [0, 62]},
+    "crate": {"name": "레이드 대체 상자", "at": [-3, 60], "size": [1.2, 0.8, 0.8], "spot": [-3, 59], "use": "crate"}
+  }
+}

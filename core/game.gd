@@ -17,7 +17,7 @@ var barter_used := {}
 
 static func load_data(dir := "res://data") -> Dictionary:
 	var d := {}
-	for key in ["items", "residents", "quests", "dialogues", "world", "shops"]:
+	for key in ["items", "residents", "quests", "dialogues", "world", "shops", "layout"]:
 		d[key] = JSON.parse_string(FileAccess.get_file_as_string("%s/%s.json" % [dir, key]))
 	return d
 
