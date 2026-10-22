@@ -159,13 +159,13 @@ func to_dict() -> Dictionary:
 	return {"version": SAVE_VERSION, "seconds": clock.seconds, "items": items, "money": money,
 		"favor": favor, "slots": slots, "quests": quests, "field": field, "crate": crate, "barter_used": barter_used}
 
-## 저장 dict를 검사해 정리한 사본을 돌려준다. 형식이 하나라도 틀리면 {}.
+## 저장 dict를 검사해 정리한 사본을 돌려준다. 형식이 틀리거나 수량·돈이 음수면 {}.
 static func clean(d) -> Dictionary:
 	if not d is Dictionary or d.get("version") != SAVE_VERSION:
 		return {}
 	var out := {}
 	for key in ["seconds", "money", "field"]:
-		if not (d.get(key) is float or d.get(key) is int):
+		if not (d.get(key) is float or d.get(key) is int) or d[key] < 0:
 			return {}
 		out[key] = d[key]
 	for key in ["items", "favor", "crate", "barter_used", "quests"]:
@@ -178,7 +178,7 @@ static func clean(d) -> Dictionary:
 				if not v is String:
 					return {}
 				out[key][k] = v
-			elif v is float or v is int:
+			elif (v is float or v is int) and v >= 0:
 				out[key][k] = int(v)
 			else:
 				return {}

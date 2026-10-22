@@ -143,6 +143,12 @@ func test_shop() -> void:
 	g.save(path)
 	var h := Game.new(Game.load_data())
 	check(h.load(path) and h.barter_used == g.barter_used, "barter use survives save")
+	var cheat := g.to_dict()
+	cheat["barter_used"] = {"armor_filter": -1}
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(JSON.stringify(cheat))
+	f.close()
+	check(not h.load(path), "negative barter usage is rejected")
 	DirAccess.remove_absolute(path)
 	g.advance(7200.0)
 	check(g.barter_used.is_empty() and Shop.offers(g, "armor")[0]["left"] == 2, "sunrise resets daily barter")
