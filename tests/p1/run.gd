@@ -76,11 +76,20 @@ func test_save() -> void:
 	check(h.to_dict() == g.to_dict(), "round trip keeps state")
 	check(h.journal()[0]["have"] == 2 and h.harvest() and h.status("farmer_harvest") == "active", "loaded game continues")
 	var before := h.to_dict()
-	for bad in ["{broken", JSON.stringify({"version": 99}), JSON.stringify({"version": 1, "money": 5})]:
+	var wrong := h.to_dict()
+	wrong["items"] = null
+	var wrong_slots := h.to_dict()
+	wrong_slots["slots"] = {"a": 1}
+	var wrong_quest := h.to_dict()
+	wrong_quest["quests"] = {"farmer_harvest": 3}
+	var bads := ["{broken", JSON.stringify({"version": 99}), JSON.stringify({"version": 1, "money": 5}),
+		JSON.stringify(wrong), JSON.stringify(wrong_slots), JSON.stringify(wrong_quest)]
+	for bad in bads:
 		var f := FileAccess.open(path, FileAccess.WRITE)
 		f.store_string(bad)
 		f.close()
 		check(not h.load(path) and h.to_dict() == before, "rejects bad save %s" % bad.left(20))
+	check(h.save(path) and h.load(path) and h.to_dict() == before, "good save still loads after rejections")
 	check(not h.load("user://missing.json"), "missing file is rejected")
 	DirAccess.remove_absolute(path)
 

@@ -148,44 +148,69 @@ func to_dict() -> Dictionary:
 	return {"version": SAVE_VERSION, "seconds": clock.seconds, "items": items, "money": money,
 		"favor": favor, "slots": slots, "quests": quests, "field": field, "crate": crate}
 
+## 저장 dict를 검사해 정리한 사본을 돌려준다. 형식이 하나라도 틀리면 {}.
+static func clean(d) -> Dictionary:
+	if not d is Dictionary or d.get("version") != SAVE_VERSION:
+		return {}
+	var out := {}
+	for key in ["seconds", "money", "field"]:
+		if not (d.get(key) is float or d.get(key) is int):
+			return {}
+		out[key] = d[key]
+	for key in ["items", "favor", "crate", "quests"]:
+		if not d.get(key) is Dictionary:
+			return {}
+		out[key] = {}
+		for k in d[key]:
+			var v = d[key][k]
+			if key == "quests":
+				if not v is String:
+					return {}
+				out[key][k] = v
+			elif v is float or v is int:
+				out[key][k] = int(v)
+			else:
+				return {}
+	if not d.get("slots") is Array:
+		return {}
+	for v in d["slots"]:
+		if not v is String:
+			return {}
+	out["slots"] = d["slots"].duplicate()
+	return out
+
 func from_dict(d: Dictionary) -> void:
 	clock.seconds = float(d["seconds"])
-	items = {}
-	for k in d["items"]:
-		items[k] = int(d["items"][k])
+	items = d["items"]
 	money = int(d["money"])
-	favor = {}
-	for k in d["favor"]:
-		favor[k] = int(d["favor"][k])
-	slots = d["slots"].duplicate()
-	quests = d["quests"].duplicate()
+	favor = d["favor"]
+	slots = d["slots"]
+	quests = d["quests"]
 	field = int(d["field"])
-	crate = {}
-	for k in d["crate"]:
-		crate[k] = int(d["crate"][k])
+	crate = d["crate"]
 
-## 임시 파일에 쓴 뒤 바꿔 넣어, 쓰다 끊겨도 이전 저장이 남는다.
+## 임시 파일에 다 쓴 것을 확인한 뒤 바꿔 넣어, 실패해도 이전 저장이 남는다.
 func save(path: String) -> bool:
 	var tmp := path + ".tmp"
 	var f := FileAccess.open(tmp, FileAccess.WRITE)
 	if f == null:
 		return false
-	f.store_string(JSON.stringify(to_dict()))
+	var ok := f.store_string(JSON.stringify(to_dict())) and f.get_error() == OK
 	f.close()
+	if not ok:
+		DirAccess.remove_absolute(tmp)
+		return false
 	return DirAccess.rename_absolute(tmp, path) == OK
 
-## 깨졌거나 버전이 다르거나 항목이 빠진 파일은 거부하고 현재 상태를 유지한다.
+## 깨졌거나 버전·형식이 다른 파일은 거부하고 현재 상태를 하나도 바꾸지 않는다.
 func load(path: String) -> bool:
 	if not FileAccess.file_exists(path):
 		return false
 	var json := JSON.new()
 	if json.parse(FileAccess.get_file_as_string(path)) != OK:
 		return false
-	var d = json.data
-	if not d is Dictionary or d.get("version") != SAVE_VERSION:
+	var d := clean(json.data)
+	if d.is_empty():
 		return false
-	for key in to_dict():
-		if not d.has(key):
-			return false
 	from_dict(d)
 	return true
