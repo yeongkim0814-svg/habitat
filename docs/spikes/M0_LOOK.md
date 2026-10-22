@@ -9,13 +9,13 @@
 ```sh
 godot --path . res://spikes/m0_look/main.tscn
 # 스크린샷(가상 화면에서): look = psx|toon|flat|paint, view = street|boundary|field|meadow|overhead|tent|hospital,
-#   --hour=0~24, --zone=safe|danger, --torch=off|lamp|shadow(손전등), --hemi=on|off
+#   --hour=0~24, --zone=safe|danger, --torch=off|lamp|shadow(손전등), --hemi=on|off, --scale=100|75|50(렌더 해상도)
 godot --path . --rendering-driver opengl3 --resolution 1280x720 res://spikes/m0_look/main.tscn -- --shot=paint:meadow:/tmp/paint_meadow.png --hour=10 --zone=safe
 # 헤드리스 구조 검사
 godot --headless --path . -s tests/m0/run.gd
 ```
 
-화면 아래 버튼: 윗줄은 스타일 4개(PSX / TOON / FLAT / PAINT)와 시점 7개(거리 / 경계 / 들판 / 초원 / 머리 위 / 의무실 / 병원), 아랫줄은 시각 -3시 / +3시, 구역(안전 ↔ 오염), 손전등(끔 → 켬 → 켬+그림자), 조절, 측정. 시작 룩은 FLAT(D49), 손전등은 켬. **측정**은 스타일 4 × 시점 7을 **손전등 끔·켬·그림자·그림자·켬·끔 순서로**(Issue #42) 90프레임씩 재서 로그에 `M0 look=… view=… torch=off|lamp|shadow mean_ms=… p95_ms=… render_cpu_mean_ms=… render_gpu_mean_ms=… vsync=…` 줄로 남기고, 화면에는 스타일 × 시점마다 `손전등 끔 / 켬 / 그림자` GPU 시간 한 줄(28줄)을 보여 준다. Compatibility 렌더러는 수직동기를 끌 수 없어 프레임 시간(mean_ms, p95_ms)이 주사율 간격에 묶이므로, **렌더러 CPU·GPU 시간(render_cpu_mean_ms, render_gpu_mean_ms)을 스타일 비교의 기준**으로 본다(S1 측정과 같은 방식, GPU 시간이 보고되지 않으면 `?`).
+화면 아래 버튼: 윗줄은 스타일 4개(PSX / TOON / FLAT / PAINT)와 시점 7개(거리 / 경계 / 들판 / 초원 / 머리 위 / 의무실 / 병원), 아랫줄은 시각 -3시 / +3시, 구역(안전 ↔ 오염), 손전등(끔 → 켬 → 켬+그림자), 해상도(100 → 75 → 50%), 조절, 측정. 시작 룩은 FLAT(D49), 손전등은 켬. **측정**은 스타일 4 × 시점 7을 **손전등 끔·켬·그림자·그림자·켬·끔 순서로**(Issue #42) 90프레임씩 재서 로그에 `M0 look=… view=… torch=off|lamp|shadow mean_ms=… p95_ms=… render_cpu_mean_ms=… render_gpu_mean_ms=… vsync=…` 줄로 남기고, 화면에는 스타일 × 시점마다 `손전등 끔 / 켬 / 그림자` GPU 시간 한 줄(28줄)을 보여 준다. Compatibility 렌더러는 수직동기를 끌 수 없어 프레임 시간(mean_ms, p95_ms)이 주사율 간격에 묶이므로, **렌더러 CPU·GPU 시간(render_cpu_mean_ms, render_gpu_mean_ms)을 스타일 비교의 기준**으로 본다(S1 측정과 같은 방식, GPU 시간이 보고되지 않으면 `?`).
 
 ## 장면 구성
 
@@ -165,6 +165,17 @@ FLAT 셰이더 3개(일반, 벽, 바닥)는 화면 미분으로 면 법선을 �
 ### 하지 않은 것
 - 손전등의 게임 규칙(배터리, 생명체를 깨우는 자극 D74)은 제안 단계라 넣지 않았다.
 - 2층, 생명체, 소리, 문 열기 같은 상호작용은 없다. 보이는 모습과 비용만 시험한다.
+
+## 렌더 해상도 배율 (Issue #48)
+
+APK로 잰 FLAT GPU 시간이 에디터 실행의 약 1.8~2배였다(예: 병원 3.15 → 6.36 ms). 유력한 원인은 해상도다. 에디터는 작은 게임 창에 그리고, APK는 태블릿 화면 전체에 그린다. 원인을 가르려고 3D를 그리는 해상도를 고를 수 있게 했다.
+- **해상도** 버튼(또는 `--scale=`): 100% → 75% → 50%. 가로·세로 각각의 비율이라 픽셀 수는 1 → 0.56 → 0.25다. 작게 그린 3D를 화면 크기로 늘려 보여 준다(75%·50%는 부드러운 필터).
+- PSX는 원래 1/4 해상도가 룩의 일부라서 배율과 상관없이 그대로다.
+- 측정 로그 줄에 `scale=`, 요약 마지막 줄에 `해상도 N%`가 남는다.
+- **읽는 법**: 같은 시점의 FLAT "손전등 끔" 값을 배율별로 비교한다.
+  - 50%에서 100% 값의 약 1/4로 줄면, 비용 대부분이 픽셀 수(화면 크기)에 비례한다는 뜻이다. 그러면 배율이 Q5를 맞추는 손잡이가 된다(모바일 게임이 흔히 쓰는 방법).
+  - 거의 줄지 않으면 픽셀과 상관없는 고정 비용(그림자 지도, 정점 처리, 디버그 빌드 부담)이 크다는 뜻이다.
+  - 중간이면 둘이 섞여 있다. 100%와 50% 두 점으로 "고정 비용 + 픽셀 비용"을 나눌 수 있다: 픽셀 비용 = (T100 − T50) ÷ 0.75, 고정 비용 = T100 − 픽셀 비용.
 
 ## 회전하는 태양 (D43)
 

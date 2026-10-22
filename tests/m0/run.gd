@@ -64,6 +64,7 @@ func _init() -> void:
 	test_tent()
 	test_hemi()
 	test_hospital()
+	test_scale()
 	print("M0 tests: %s" % ("OK" if failures == 0 else "%d FAILED" % failures))
 	quit(1 if failures > 0 else 0)
 
@@ -280,3 +281,10 @@ func test_hospital() -> void:
 	check(indoor.distance >= Hospital.EXTENT and indoor.distance < outdoor.distance / 4.0, "hospital shadow distance reaches the stairwell end and is much shorter than outdoors (%s)" % indoor.distance)
 	check(indoor.soft > outdoor.soft and indoor.bias < outdoor.bias and indoor.normal_bias < outdoor.normal_bias, "hospital uses a softer filter and smaller biases")
 	h.free()
+
+func test_scale() -> void:
+	# Issue #48: render resolution per axis; PSX keeps its own 1/4.
+	check(World.SCALES == [1.0, 0.75, 0.5], "render scales are 100, 75, 50 %")
+	for s in World.SCALES:
+		check(World.effective_scale("flat", s) == s and World.effective_scale("paint", s) == s, "FLAT and PAINT follow the chosen scale (%s)" % s)
+		check(is_equal_approx(World.effective_scale("psx", s), 1.0 / Looks.SHRINK["psx"]), "PSX keeps its own resolution (%s)" % s)

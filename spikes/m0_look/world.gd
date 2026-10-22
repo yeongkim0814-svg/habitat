@@ -25,6 +25,8 @@ const HOSPITAL_XFORM := Transform3D(Basis(), Vector3(0.0, 0.2, -140.0))
 # setting: it is only set when it changes.
 const SHADOW_OUTDOOR := {"distance": 160.0, "bias": 0.05, "normal_bias": 2.0, "soft": RenderingServer.SHADOW_QUALITY_SOFT_LOW}
 const SHADOW_HOSPITAL := {"distance": Hospital.EXTENT + 2.0, "bias": 0.02, "normal_bias": 1.0, "soft": RenderingServer.SHADOW_QUALITY_SOFT_HIGH}
+# Render resolution per axis (Issue #48): 100 / 75 / 50 % draw 1 / 0.56 / 0.25 of the pixels. PSX keeps its own 1/4 (part of the look).
+const SCALES: Array[float] = [1.0, 0.75, 0.5]
 const BENCH_FRAMES := 90
 const BENCH_SKIP := 12
 
@@ -52,6 +54,7 @@ var bench_gpu := {} # "look:view:torch" -> GPU ms of each run, for the flashligh
 var hemi := true # FLAT hemisphere ambient (Issue #40)
 var soft_quality := RenderingServer.SHADOW_QUALITY_SOFT_LOW
 var torch := "lamp" # player flashlight: off, lamp, or lamp with shadows (Issue #42)
+var render_scale := 1.0
 var flashlight := SpotLight3D.new()
 var hospital_node: Node3D
 var bench_frame := 0
@@ -60,10 +63,9 @@ var shot_path := ""
 
 func _ready() -> void:
 	add_child(container)
-	container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	container.stretch = true
-	container.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	container.add_child(viewport)
+	get_tree().root.size_changed.connect(fit_view)
 	viewport.add_child(scene)
 	scene.add_child(env_node)
 	scene.add_child(content)
@@ -105,6 +107,11 @@ func read_args() -> bool:
 			if not arg.substr(7) in ["on", "off"]:
 				return reject("--hemi expects on or off, got '%s'" % arg.substr(7))
 			hemi = arg.substr(7) == "on"
+		elif arg.begins_with("--scale="):
+			var pct := arg.substr(8)
+			if not pct.is_valid_int() or not int(pct) / 100.0 in SCALES:
+				return reject("--scale expects one of 100, 75, 50, got '%s'" % pct)
+			render_scale = int(pct) / 100.0
 		elif arg.begins_with("--torch="):
 			if not arg.substr(8) in TORCH_NAMES:
 				return reject("--torch expects one of %s, got '%s'" % [", ".join(TORCH_NAMES.keys()), arg.substr(8)])
@@ -168,10 +175,26 @@ func rebuild() -> void:
 		ring.add_child(seg)
 	Stage.overhead(look, rng, ring, -PI / 2.0 if zone == "danger" else PI / 2.0)
 	env_node.environment = Looks.environment(look)
-	container.stretch_shrink = Looks.SHRINK[look]
+	fit_view()
 	apply_time()
 	place_camera()
 	apply_torch()
+
+# Resolution the 3D view is drawn at, as a fraction of the screen per axis.
+static func effective_scale(l: String, chosen: float) -> float:
+	return 1.0 / Looks.SHRINK[l] if Looks.SHRINK[l] > 1 else chosen
+
+# The container is sized to scale x screen (its viewport follows it) and drawn scaled up by 1 / scale, so the 3D view is
+# rendered at fewer pixels and stretched to fill the screen. stretch_shrink only takes whole numbers (1/2, 1/3), not 75 %.
+func fit_view() -> void:
+	var shrink: int = Looks.SHRINK[look]
+	var s := effective_scale(look, render_scale) * shrink # scale of the container itself; PSX shrinks inside it
+	container.stretch_shrink = shrink
+	container.position = Vector2.ZERO
+	container.size = get_viewport().get_visible_rect().size * s
+	container.scale = Vector2.ONE / s
+	# PSX wants hard pixels; a smooth filter hides the stretch at 75 %.
+	container.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if shrink > 1 or s == 1.0 else CanvasItem.TEXTURE_FILTER_LINEAR
 
 func apply_torch() -> void:
 	flashlight.visible = torch != "off"
@@ -223,7 +246,7 @@ func apply_time() -> void:
 	if hospital_node != null and hospital_node.is_inside_tree():
 		var to_sun := hospital_node.global_transform.basis.inverse() * Sun.to_sun(hour)
 		Hospital.aim(hospital_node, to_sun, sun.light_energy if sun.visible else 0.0, sun.light_color)
-	label.text = "%s / %s / %s / %02d시 (태양 고도 %d°) / %s" % [Looks.NAMES[look], VIEW_NAMES[view], ZONE_NAMES[zone], int(hour), int(elev), TORCH_NAMES[torch]]
+	label.text = "%s / %s / %s / %02d시 (태양 고도 %d°) / %s / 해상도 %d%%" % [Looks.NAMES[look], VIEW_NAMES[view], ZONE_NAMES[zone], int(hour), int(elev), TORCH_NAMES[torch], roundi(effective_scale(look, render_scale) * 100.0)]
 	if view == "tent" and not Tent.textures_found():
 		label.text += " / 텍스처 없음(assets 폴더 확인)"
 
@@ -287,6 +310,7 @@ func build_ui() -> void:
 	Kit.button(bottom, "+3시", step_hour.bind(3.0))
 	Kit.button(bottom, "구역", toggle_zone)
 	Kit.button(bottom, "손전등", cycle_torch)
+	Kit.button(bottom, "해상도", cycle_scale)
 	Kit.button(bottom, "조절", toggle_panel)
 	Kit.button(bottom, "측정", start_bench)
 	ui.add_child(panel)
@@ -324,6 +348,12 @@ func toggle_zone() -> void:
 	if bench_queue.is_empty():
 		zone = "danger" if zone == "safe" else "safe"
 		rebuild()
+
+func cycle_scale() -> void:
+	if bench_queue.is_empty():
+		render_scale = SCALES[(SCALES.find(render_scale) + 1) % SCALES.size()]
+		fit_view()
+		apply_time()
 
 func cycle_torch() -> void:
 	if bench_queue.is_empty():
@@ -386,7 +416,7 @@ func finish_bench_item() -> void:
 	var gpu := mean_of(gpu_samples)
 	var torch_state := bench_queue[0].split(":")[2]
 	bench_gpu.get_or_add(bench_queue[0], []).append(gpu)
-	var line := "M0 look=%s view=%s torch=%s mean_ms=%.3f p95_ms=%.3f render_cpu_mean_ms=%.3f render_gpu_mean_ms=%s samples=%d refresh_hz=%s vsync=%d" % [look, view, torch_state, mean_of(bench_samples), p95, mean_of(cpu_samples), "%.3f" % gpu if gpu > 0.0 else "?", bench_samples.size(), refresh_text(), DisplayServer.window_get_vsync_mode()]
+	var line := "M0 look=%s view=%s torch=%s mean_ms=%.3f p95_ms=%.3f render_cpu_mean_ms=%.3f render_gpu_mean_ms=%s samples=%d refresh_hz=%s vsync=%d scale=%d" % [look, view, torch_state, mean_of(bench_samples), p95, mean_of(cpu_samples), "%.3f" % gpu if gpu > 0.0 else "?", bench_samples.size(), refresh_text(), DisplayServer.window_get_vsync_mode(), roundi(effective_scale(look, render_scale) * 100.0)]
 	print(line)
 	bench_queue.remove_at(0)
 	if bench_queue.is_empty():
@@ -395,7 +425,7 @@ func finish_bench_item() -> void:
 			for v in VIEWS:
 				var g := func(state: String) -> float: return mean_gpu(bench_gpu["%s:%s:%s" % [l, v, state]])
 				bench_lines.append(cost_line(l, v, g.call("off"), g.call("lamp"), g.call("shadow")))
-		bench_lines.append("GPU ms, %s Hz, vsync=%d" % [refresh_text(), DisplayServer.window_get_vsync_mode()])
+		bench_lines.append("GPU ms, %s Hz, vsync=%d, 해상도 %d%% (PSX는 25%%)" % [refresh_text(), DisplayServer.window_get_vsync_mode(), roundi(render_scale * 100.0)])
 		print("\n".join(bench_lines))
 		torch = "lamp"
 		apply_torch()
