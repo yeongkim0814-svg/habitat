@@ -4,6 +4,7 @@ const Clock = preload("res://core/clock.gd")
 const Shop = preload("res://core/shop.gd")
 const Schedule = preload("res://core/schedule.gd")
 const Cylinder = preload("res://core/cylinder.gd")
+const Touch = preload("res://tests/p1/touch.gd")
 var passed := 0
 var failed := 0
 
@@ -25,6 +26,7 @@ func run() -> void:
 	test_shop()
 	test_schedule()
 	await test_greybox()
+	await Touch.run(self)
 	test_data_only_quest()
 	print("%d passed, %d failed" % [passed, failed])
 	quit(1 if failed > 0 else 0)
@@ -286,3 +288,4 @@ func test_greybox_shop(scene: Node3D) -> void:
 	check(JSON.parse_string(file.get_as_text())["items"].has("filter_basic"), "shop purchase is saved")
 	file.close()
 	shop.hide()
+
