@@ -174,9 +174,24 @@ func test_schedule() -> void:
 	d["residents"]["farmer"]["schedule"].append({"hour": 3, "place": "moon"})
 	check(Schedule.validate(d).size() == 2, "unknown place and out-of-order hour are reported")
 
-func test_greybox() -> void:
+const SCENE_SAVE := "user://p1_greybox_test.json"
+
+func open_scene() -> Node3D:
 	var scene: Node3D = load("res://game/greybox.tscn").instantiate()
+	scene.save_path = SCENE_SAVE
 	root.add_child(scene)
+	return scene
+
+## 대상 옆으로 옮기고 행동 버튼을 누른다.
+func act_at(scene: Node3D, at: Vector3) -> void:
+	scene.player.position = at
+	await process_frame
+	await process_frame
+	scene.act()
+
+func test_greybox() -> void:
+	DirAccess.remove_absolute(SCENE_SAVE)
+	var scene := open_scene()
 	for i in 30:
 		await physics_frame
 	var r := Vector2(scene.player.position.x, scene.player.position.y).length()
@@ -193,6 +208,81 @@ func test_greybox() -> void:
 	await process_frame
 	await process_frame
 	check(scene.target.get("id") == "farmer", "farmer is the action target next to him")
+	await test_greybox_quest(scene, farmer)
+	await test_greybox_shop(scene)
+	await test_greybox_save(scene)
+
+func test_greybox_quest(scene: Node3D, farmer: Node3D) -> void:
 	scene.act()
-	check(scene.game.status("farmer_harvest") == "active" and scene.message.text.contains("감자"), "talking accepts the farmer quest")
+	check(scene.dialogue.visible and scene.dialogue.text.text.contains("배급") and scene.game.status("farmer_harvest") == "available",
+		"talking opens the start dialogue without accepting yet")
+	await process_frame
+	await process_frame
+	check(not scene.action.visible and not scene.quests.visible, "world buttons hide while a screen is open")
+	scene.dialogue.next()
+	check(scene.dialogue.choices.keys() == ["수락", "나중에"] and scene.dialogue.buttons.get_child_count() == 2, "last line offers accept / later")
+	scene.dialogue.choose("나중에")
+	check(not scene.dialogue.visible and scene.game.status("farmer_harvest") == "available", "later keeps the quest open")
+	scene.act()
+	scene.dialogue.next()
+	scene.dialogue.choose("수락")
+	check(scene.game.status("farmer_harvest") == "active", "accept starts the quest")
+	scene.journal.open(scene.game, scene.restart)
+	check(scene.journal.rows.get_child(0).text.contains("감자 0/5"), "quest screen shows 0/5")
+	for i in 5:
+		scene.game.harvest()
+	scene.journal.open(scene.game, scene.restart)
+	check(scene.journal.rows.get_child(0).text.contains("5/5  (납품 가능)"), "quest screen marks ready")
+	scene.journal.hide()
+	await act_at(scene, farmer.position + Cylinder.upright(farmer.position).x * 1.0)
+	check(scene.dialogue.visible and scene.game.status("farmer_harvest") == "done" and scene.game.money == 50, "delivery opens the done dialogue and pays")
+	scene.dialogue.choose("닫기")
+
+func test_greybox_save(scene: Node3D) -> void:
+	scene.save()
+	var saved: Dictionary = scene.game.to_dict()
 	scene.queue_free()
+	await process_frame
+	scene = open_scene()
+	check(JSON.stringify(scene.game.to_dict(), "", true) == JSON.stringify(saved, "", true), "reopened scene continues from the save")
+	scene.journal.open(scene.game, scene.restart)
+	scene.journal.ask_restart()
+	check(scene.journal.visible and scene.game.money == saved["money"], "restart needs a second tap")
+	scene.journal.ask_restart()
+	check(scene.game.money == 0 and scene.game.status("farmer_harvest") == "available", "second tap restarts")
+	scene.save_path = "user://missing_dir/save.json"
+	scene.accept("farmer_harvest")
+	check(scene.message.text.contains("저장하지 못했다"), "a failed save is reported, not hidden by the accept notice")
+	scene.restart()
+	check(scene.message.text.contains("저장하지 못했다"), "a failed save is reported, not hidden by the restart notice")
+	scene.save_path = SCENE_SAVE
+	scene.queue_free()
+	var f := FileAccess.open(SCENE_SAVE, FileAccess.WRITE)
+	f.store_string("{broken")
+	f.close()
+	scene = open_scene()
+	check(scene.game.money == 0 and scene.message.text.contains("새로"), "broken save starts a new game with a notice")
+	scene.queue_free()
+	DirAccess.remove_absolute(SCENE_SAVE)
+
+func test_greybox_shop(scene: Node3D) -> void:
+	var armor: Node3D = scene.residents["armor"]
+	scene.player.position = armor.position + Cylinder.upright(armor.position).x * 1.0
+	await process_frame
+	await process_frame
+	check(scene.trade.visible, "trade button next to the armor merchant")
+	scene.open_shop()
+	var shop = scene.shop
+	check(shop.visible and shop.rows.get_child_count() == 2, "shop opens on the buy tab with 2 items")
+	var before: int = scene.game.money
+	check(not shop.run("buy", "plate_basic") and scene.game.money == before, "too expensive: refused, nothing changes")
+	check(shop.run("buy", "filter_basic") and scene.game.money == before - 40 and scene.game.count("filter_basic") == 1, "buy filter")
+	shop.show_tab("sell")
+	scene.game.harvest()
+	check(shop.run("sell", "crop") and scene.game.count("crop") == 0 and not shop.run("sell", "crop"), "sell the last crop, then refused")
+	shop.show_tab("barter")
+	check(shop.rows.get_child_count() == 1 and not shop.run("barter", "armor_filter"), "barter without crops is refused")
+	var file := FileAccess.open(SCENE_SAVE, FileAccess.READ)
+	check(JSON.parse_string(file.get_as_text())["items"].has("filter_basic"), "shop purchase is saved")
+	file.close()
+	shop.hide()

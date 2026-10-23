@@ -5,6 +5,9 @@ const Game = preload("res://core/game.gd")
 const Schedule = preload("res://core/schedule.gd")
 const Player = preload("res://game/player.gd")
 const Touch = preload("res://game/touch.gd")
+const Dialogue = preload("res://ui/dialogue.gd")
+const Journal = preload("res://ui/journal.gd")
+const ShopScreen = preload("res://ui/shop.gd")
 const REACH := 3.0
 const COLORS := {"field": Color(0.45, 0.36, 0.2), "gate": Color(0.35, 0.37, 0.4), "crate": Color(0.55, 0.4, 0.2)}
 
@@ -16,10 +19,18 @@ var environment: Environment
 var status: Label
 var message: Label
 var action: Button
+var trade: Button
+var quests: Button
+var dialogue: Dialogue
+var journal: Journal
+var shop: ShopScreen
 var target := {}
+## 테스트는 장면을 트리에 넣기 전에 다른 경로로 바꾼다.
+var save_path := "user://p1_save.json"
 
 func _ready() -> void:
 	game = Game.new(Game.load_data())
+	var loaded := game.load(save_path)
 	build_floor()
 	for id in game.data["layout"]["places"]:
 		build_place(id, game.data["layout"]["places"][id])
@@ -32,6 +43,8 @@ func _ready() -> void:
 	add_child(player)
 	player.camera.current = true
 	build_hud()
+	if not loaded and FileAccess.file_exists(save_path):
+		message.text = "저장을 읽지 못해 새로 시작한다."
 
 func build_floor() -> void:
 	var material := StandardMaterial3D.new()
@@ -131,16 +144,35 @@ func build_hud() -> void:
 	message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	message.add_theme_font_size_override("font_size", 30)
 	hud.add_child(message)
-	action = Button.new()
-	action.focus_mode = Control.FOCUS_NONE
-	action.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	action.offset_top = -150
-	action.offset_bottom = -40
-	action.offset_left = -220
-	action.offset_right = 220
-	action.add_theme_font_size_override("font_size", 34)
-	action.pressed.connect(act)
-	hud.add_child(action)
+	action = bottom_button(hud, -220, act)
+	trade = bottom_button(hud, 240, open_shop)
+	trade.text = "거래"
+	quests = bottom_button(hud, 0, func(): journal.open(game, restart))
+	quests.text = "퀘스트"
+	quests.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	quests.offset_left = -300
+	quests.offset_right = -24
+	quests.offset_top = 16
+	quests.offset_bottom = 126
+	dialogue = Dialogue.new()
+	journal = Journal.new()
+	shop = ShopScreen.new()
+	for screen in [dialogue, journal, shop]:
+		hud.add_child(screen)
+
+## 화면 아래 가운데 줄의 큰 버튼. left는 가운데에서 왼쪽 끝까지의 거리.
+func bottom_button(hud: CanvasLayer, left: float, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	b.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	b.offset_top = -150
+	b.offset_bottom = -40
+	b.offset_left = left
+	b.offset_right = left + 440
+	b.add_theme_font_size_override("font_size", 34)
+	b.pressed.connect(on_press)
+	hud.add_child(b)
+	return b
 
 func _process(dt: float) -> void:
 	game.advance(dt)
@@ -154,8 +186,11 @@ func _process(dt: float) -> void:
 		residents[id].position = Cylinder.surface(at.x, at.y, 0.9)
 		residents[id].basis = Cylinder.upright(residents[id].position)
 	target = nearest()
-	action.visible = not target.is_empty()
+	var idle := not (dialogue.visible or journal.visible or shop.visible)
+	action.visible = idle and not target.is_empty()
 	action.text = target.get("label", "")
+	trade.visible = idle and target.get("kind") == "talk" and game.data["shops"].has(target["id"])
+	quests.visible = idle
 	status.text = status_text()
 
 ## 손이 닿는 가장 가까운 대상: 주민 또는 쓸 수 있는 장소(밭, 상자). 장소는 use_at(없으면 spot)에서 reach(없으면 REACH) 안이면 쓴다.
@@ -186,21 +221,48 @@ func act() -> void:
 			var got := game.open_crate()
 			message.text = "상자: %s" % [got] if not got.is_empty() else "상자가 비었다. 해가 뜨면 다시 찬다."
 		"talk":
-			message.text = talk(target["id"])
+			talk(target["id"])
+	save()
 
-## 납품 가능하면 완료, 받을 수 있으면 수락. 대사는 4단계 대화 화면 전까지 글로 띄운다.
-func talk(giver: String) -> String:
+## 대화는 퀘스트를 받을 때와 끝낼 때만(D95). 납품은 말을 걸면 바로, 수락은 시작 대화 끝의 버튼으로.
+func talk(giver: String) -> void:
+	var who: String = game.data["residents"][giver]["name"]
 	var id := game.offer(giver)
 	if id == "":
-		return game.data["residents"][giver]["name"] + ": 지금은 부탁할 게 없어."
-	var lines: Array = game.complete(id) if game.status(id) == "ready" else game.accept(id)
-	return "\n".join(lines)
+		message.text = who + ": 지금은 부탁할 게 없어."
+	elif game.status(id) == "ready":
+		message.text = ""
+		dialogue.open(who, game.complete(id), {"닫기": func(): pass})
+	else:
+		message.text = ""
+		dialogue.open(who, game.data["dialogues"][game.quest(id)["start"]], {"수락": accept.bind(id), "나중에": func(): pass})
+
+func accept(id: String) -> void:
+	game.accept(id)
+	message.text = "퀘스트를 받았다. 진행은 '퀘스트' 화면에서 본다."
+	save()
+
+func open_shop() -> void:
+	message.text = ""
+	shop.open(game, target["id"], save)
+
+func restart() -> void:
+	game = Game.new(Game.load_data())
+	message.text = "처음부터 시작한다."
+	save()
+
+## 실패 안내를 덮지 않도록 다른 안내 글은 save() 전에 쓴다.
+func save() -> void:
+	if not game.save(save_path):
+		message.text = "저장하지 못했다."
+
+## 앱이 백그라운드로 가거나 닫힐 때도 저장해 시각과 상태를 잃지 않는다.
+func _notification(what: int) -> void:
+	if game != null and what in [NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_WM_CLOSE_REQUEST, NOTIFICATION_WM_GO_BACK_REQUEST]:
+		save()
 
 func status_text() -> String:
 	var lines := ["%02d:%02d  %d일째  돈 %d" % [int(game.clock.hour()), int(fmod(game.clock.hour(), 1.0) * 60), game.clock.day() + 1, game.money]]
-	for row in game.journal():
-		lines.append("%s %s %d/%d%s" % [game.data["residents"][row["giver"]]["name"], game.data["items"][row["item"]]["name"],
-			row["have"], row["need"], "  (납품 가능)" if row["ready"] else ""])
 	if not game.items.is_empty():
 		lines.append("소지품: " + ", ".join(game.items.keys().map(func(k): return "%s %d" % [game.data["items"][k]["name"], game.items[k]])))
 	return "\n".join(lines)
