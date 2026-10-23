@@ -39,6 +39,7 @@ func _ready() -> void:
 	build_light()
 	var at: Array = game.data["layout"]["spawn"]
 	player = Player.new()
+	player.gait = Player.Gait.new(game.data["controls"])
 	player.position = Cylinder.surface(at[0], at[1], 0.91)
 	add_child(player)
 	player.camera.current = true
@@ -129,6 +130,7 @@ func build_hud() -> void:
 	add_child(hud)
 	var touch := Touch.new()
 	touch.player = player
+	touch.look_turn = deg_to_rad(game.data["controls"]["look_turn_per_screen"])
 	hud.add_child(touch)
 	status = Label.new()
 	status.position = Vector2(24, 16)
@@ -144,31 +146,27 @@ func build_hud() -> void:
 	message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	message.add_theme_font_size_override("font_size", 30)
 	hud.add_child(message)
-	action = bottom_button(hud, -220, act)
-	trade = bottom_button(hud, 240, open_shop)
+	# D103: 행동 버튼은 오른쪽 아래 엄지 자리, 거래는 그 위 호, 퀘스트는 위 구석.
+	action = corner_button(hud, Control.PRESET_BOTTOM_RIGHT, Vector2(-400, -150), act)
+	trade = corner_button(hud, Control.PRESET_BOTTOM_RIGHT, Vector2(-460, -280), open_shop)
 	trade.text = "거래"
-	quests = bottom_button(hud, 0, func(): journal.open(game, restart))
+	quests = corner_button(hud, Control.PRESET_TOP_RIGHT, Vector2(-384, 16), func(): journal.open(game, restart))
 	quests.text = "퀘스트"
-	quests.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	quests.offset_left = -300
-	quests.offset_right = -24
-	quests.offset_top = 16
-	quests.offset_bottom = 126
 	dialogue = Dialogue.new()
 	journal = Journal.new()
 	shop = ShopScreen.new()
 	for screen in [dialogue, journal, shop]:
 		hud.add_child(screen)
 
-## 화면 아래 가운데 줄의 큰 버튼. left는 가운데에서 왼쪽 끝까지의 거리.
-func bottom_button(hud: CanvasLayer, left: float, on_press: Callable) -> Button:
+## 화면 구석 기준의 큰 버튼(360×110). at은 구석에서 버튼 왼쪽 위까지의 거리.
+func corner_button(hud: CanvasLayer, corner: Control.LayoutPreset, at: Vector2, on_press: Callable) -> Button:
 	var b := Button.new()
 	b.focus_mode = Control.FOCUS_NONE
-	b.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	b.offset_top = -150
-	b.offset_bottom = -40
-	b.offset_left = left
-	b.offset_right = left + 440
+	b.set_anchors_and_offsets_preset(corner)
+	b.offset_left = at.x
+	b.offset_top = at.y
+	b.offset_right = at.x + 360
+	b.offset_bottom = at.y + 110
 	b.add_theme_font_size_override("font_size", 34)
 	b.pressed.connect(on_press)
 	hud.add_child(b)
@@ -262,7 +260,8 @@ func _notification(what: int) -> void:
 		save()
 
 func status_text() -> String:
-	var lines := ["%02d:%02d  %d일째  돈 %d" % [int(game.clock.hour()), int(fmod(game.clock.hour(), 1.0) * 60), game.clock.day() + 1, game.money]]
+	var lines := ["%02d:%02d  %d일째  돈 %d  이동: %s" % [int(game.clock.hour()), int(fmod(game.clock.hour(), 1.0) * 60), game.clock.day() + 1, game.money,
+		game.data["controls"]["stage_names"][player.gait.stage]]]
 	if not game.items.is_empty():
 		lines.append("소지품: " + ", ".join(game.items.keys().map(func(k): return "%s %d" % [game.data["items"][k]["name"], game.items[k]])))
 	return "\n".join(lines)

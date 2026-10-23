@@ -1,0 +1,8 @@
+{
+  "deadzone": 0.15,
+  "edges": [0.5, 0.85],
+  "hysteresis": 0.04,
+  "speeds": [1.5, 3.5, 6.0],
+  "stage_names": ["정지", "조용히 걷기", "걷기", "달리기"],
+  "look_turn_per_screen": 180
+}

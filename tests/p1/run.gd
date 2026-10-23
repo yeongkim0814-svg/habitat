@@ -5,6 +5,7 @@ const Shop = preload("res://core/shop.gd")
 const Schedule = preload("res://core/schedule.gd")
 const Cylinder = preload("res://core/cylinder.gd")
 const Touch = preload("res://tests/p1/touch.gd")
+const GaitTest = preload("res://tests/p1/gait.gd")
 var passed := 0
 var failed := 0
 
@@ -26,6 +27,7 @@ func run() -> void:
 	test_shop()
 	test_schedule()
 	await test_greybox()
+	GaitTest.run(self)
 	await Touch.run(self)
 	test_data_only_quest()
 	print("%d passed, %d failed" % [passed, failed])
