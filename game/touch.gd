@@ -2,12 +2,13 @@ extends Control
 ## 터치 조작(D32): 화면 왼쪽 절반은 가상 스틱(누른 곳이 중심), 오른쪽 절반은 드래그로 시점.
 ## 데스크톱 시험용으로 WASD와 방향키도 받는다.
 const STICK_RADIUS := 110.0
-const LOOK_GAIN := 0.006
 var player: CharacterBody3D
 var stick_finger := -1
 var stick_origin := Vector2.ZERO
 var stick := Vector2.ZERO
 var look_finger := -1
+## 화면 높이만큼 끌 때의 회전(rad, D102). 장면이 data/controls.json 값으로 정한다.
+var look_turn := PI
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -29,7 +30,7 @@ func _gui_input(event: InputEvent) -> void:
 		if event.index == stick_finger:
 			stick = ((event.position - stick_origin) / STICK_RADIUS).limit_length()
 		elif event.index == look_finger:
-			player.look += -event.relative * LOOK_GAIN
+			player.look += -event.relative * look_turn / size.y
 
 func _process(_dt: float) -> void:
 	queue_redraw()

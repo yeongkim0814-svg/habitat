@@ -3,8 +3,10 @@ extends CharacterBody3D
 ## 회전계 가속도(D17)를 더한 뒤 엔진 충돌로 걷는다.
 const Cylinder = preload("res://core/cylinder.gd")
 const Motion = preload("res://core/motion.gd")
-const SPEED := 4.0
+const Gait = preload("res://core/gait.gd")
+## 스틱 벡터. 길이(기울기)는 gait가 단계 속도로 바꾼다(D101).
 var move := Vector2.ZERO
+var gait: Gait
 var look := Vector2.ZERO
 var yaw := 0.0
 var pitch := 0.0
@@ -34,7 +36,8 @@ func _physics_process(dt: float) -> void:
 	var right := forward.cross(up_direction).normalized()
 	basis = Basis(right, up_direction, -forward).orthonormalized()
 	camera.rotation.x = pitch
-	var desired := (right * move.x + forward * move.y).limit_length() * SPEED
+	gait.update(move.length())
+	var desired := (right * move.x + forward * move.y).normalized() * gait.speed()
 	velocity = desired + up_direction * velocity.dot(up_direction)
 	velocity += Motion.acceleration(position, velocity) * dt
 	move_and_slide()

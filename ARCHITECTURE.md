@@ -24,15 +24,16 @@
 | `core/schedule.gd` | 순수 | 주민 시간표 위치(절대 시각, 직선 보행), 장소 spot, 시간표 검사 | `data/layout.json`, `data/residents.json` |
 | `core/clock.gd` | 순수 | 세계 시계(D46): 압축한 하루, 지난 일출 횟수 | 없음 |
 | `core/game.gd` | 순수 | P1 게임 상태와 명령: 소지품(개수), 돈(계정 잔액), 교환 사용량, 퀘스트 상태·납품·보상(D92~D95), 밭·대체 상자 일출 재충전, 저장·불러오기(JSON, 임시 파일 후 교체) | clock, `data/*.json` |
+| `core/gait.gd` | 순수 | 이동 단계(D73, D101): 스틱 기울기 → 정지·조용히 걷기·걷기·달리기, 경계 여유 구간, 단계 속도, 데이터 검사 | `data/controls.json` |
 | `core/shop.gd` | 순수 | 상점(D36, D79): 재화 구매·판매, 교환(일일 수량 = 호감도 단계, 일출 갱신) | game의 상태 |
-| `game/greybox.gd` (`greybox.tscn`) | 장면 연결 | P1 회색 박스(D96): 원통 바닥, 장소 상자, 주민 캡슐, 밤낮 밝기, 상태 글, 행동·거래·퀘스트 버튼 → core 명령과 ui 화면. 시작할 때 `user://p1_save.json`을 불러오고, 명령 뒤와 앱이 백그라운드로 가거나 닫힐 때 저장 | core 전부, ui |
+| `game/greybox.gd` (`greybox.tscn`) | 장면 연결 | P1 회색 박스(D96): 원통 바닥, 장소 상자, 주민 캡슐, 밤낮 밝기, 상태 글, 행동·거래 버튼(오른쪽 아래 엄지 자리, D103)·퀘스트 버튼 → core 명령과 ui 화면, 상태 글에 이동 단계. 시작할 때 `user://p1_save.json`을 불러오고, 명령 뒤와 앱이 백그라운드로 가거나 닫힐 때 저장 | core 전부, ui |
 | `ui/dialogue.gd` | 터치 UI | 대화 화면(D95): 대사를 한 줄씩, 마지막 줄에 선택 버튼(수락/나중에, 닫기) | kit |
 | `ui/journal.gd` | 터치 UI | 퀘스트 화면(D95): `Game.journal()`의 현재/목표 수량, 두 번 눌러 처음부터 | kit, game의 상태 |
 | `ui/shop.gd` | 터치 UI | 상점 화면(D36, D79): 사기·팔기·교환 탭 → `core/shop.gd` 명령, 성공하면 저장 콜백 | kit, shop |
 | `ui/kit.gd` | 터치 UI | 공통 부품: 큰 글자, 손가락 크기 버튼, 화면 가운데 패널 | 없음 |
-| `game/player.gd` | 장면 연결 | 1인칭 CharacterBody3D(회전계 가속도, 엔진 충돌) | cylinder, motion |
-| `game/touch.gd` | 장면 연결 | 터치 조작(왼쪽 가상 스틱, 오른쪽 드래그 시점), WASD | 없음 |
-| `data/` | 데이터 | 아이템, 주민(시간표), 퀘스트, 대화, 상점, 마을 배치, 세계 설정(JSON). 퀘스트 추가는 이 폴더만 고친다 | 없음 |
+| `game/player.gd` | 장면 연결 | 1인칭 CharacterBody3D(회전계 가속도, 엔진 충돌, 속도는 gait 단계) | cylinder, motion, gait |
+| `game/touch.gd` | 장면 연결 | 터치 조작(왼쪽 떠다니는 스틱, 오른쪽 드래그 시점: 화면 높이 비율 선형, D101·D102), WASD | 없음 |
+| `data/` | 데이터 | 아이템, 주민(시간표), 퀘스트, 대화, 상점, 마을 배치, 세계 설정, 조작 값(JSON). 퀘스트 추가는 이 폴더만 고친다 | 없음 |
 | `tests/s1`, `tests/s2`, `tests/s4`, `tests/m0`, `tests/p1` | 테스트 | 헤드리스 검증(`godot --headless --script tests/sN/run.gd`) | 대응 모듈 |
 
 ## 2. 목표 구조 (P1부터 적용 중: core/, data/, game/, ui/ 생김)

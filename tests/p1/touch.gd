@@ -45,5 +45,19 @@ static func run(t: SceneTree) -> void:
 	await t.process_frame
 	await t.process_frame
 	t.check(scene.player.move == Vector2.ZERO, "releasing the stick stops walking")
+	await turn_and_buttons(t, scene, screen, right)
 	scene.queue_free()
 	DirAccess.remove_absolute(t.SCENE_SAVE)
+
+## D102: 화면 높이만큼 끌면 180°. D103: 행동 버튼은 오른쪽 아래.
+static func turn_and_buttons(t: SceneTree, scene: Node3D, screen: Vector2, right: Vector2) -> void:
+	var turn: float = scene.player.yaw
+	finger(t, 1, right)
+	drag(t, 1, right, Vector2(-screen.y, 0))
+	await t.process_frame
+	await t.physics_frame
+	await t.physics_frame
+	t.check(absf(absf(scene.player.yaw - turn) - PI) < 0.01, "dragging one screen height turns 180 degrees (%.3f)" % (scene.player.yaw - turn))
+	finger(t, 1, right, false)
+	t.check(scene.action.get_global_rect().end.x > screen.x * 0.8 and scene.action.get_global_rect().end.y > screen.y * 0.8,
+		"action button sits at the bottom right %s" % [scene.action.get_global_rect()])
